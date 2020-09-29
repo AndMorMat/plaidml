@@ -14,7 +14,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/DebugStringHelper.h"
 #include "mlir/Support/FileUtilities.h"
-#include "mlir/Transforms/Passes.h"
 
 #include "pmlc/compiler/registry.h"
 #include "pmlc/util/logging.h"
@@ -79,6 +78,8 @@ private:
 };
 
 } // namespace
+
+Program::Program() : module(ModuleOp::create(UnknownLoc::get(&context))) {}
 
 Program::Program(mlir::ModuleOp module) : module(module) {}
 

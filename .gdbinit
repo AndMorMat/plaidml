@@ -1,3 +1,3 @@
-target remote localhost:2345
 dir bazel-plaidml
+set auto-solib-add off
 set sysroot

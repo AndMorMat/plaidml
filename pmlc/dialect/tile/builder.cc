@@ -67,9 +67,9 @@ using util::AggregationKind;
 using util::BufferPtr;
 using util::CombinationKind;
 
-struct DomainInfo {
-  BlockAndValueMapping mapping;
-};
+static RankedTensorType getRankedTensorType(MemRefType type) {
+  return RankedTensorType::get(type.getShape(), type.getElementType());
+}
 
 struct TileBuilder::Impl {
   std::unique_ptr<MLIRContext> context;
@@ -315,10 +315,10 @@ Value TileBuilder::MakeTraceOp(Value tensor, const char *msg) {
   return impl->builder.create<TraceOp>(impl->loc, tensor, msg).out();
 }
 
-Value TileBuilder::MakePrimitiveOp(StringRef fn, ArrayRef<Value> args) {
-  using PrimitiveBuilder = std::function<Value()>;
+Value TileBuilder::MakeIntrinsicOp(StringRef fn, ArrayRef<Value> args) {
+  using IntrinsicBuilder = std::function<Value()>;
   auto builder =
-      StringSwitch<PrimitiveBuilder>(fn)
+      StringSwitch<IntrinsicBuilder>(fn)
           .Case("index", [this, args]() { return impl->makeIndexOp(args); })
           .Case("prng", [this, args]() { return impl->makePrngOp(args); })
           .Default([this, fn, args]() {
@@ -432,11 +432,12 @@ RankedTensorType TileBuilder::MakeRankedTensorType(Type dtype,
   return RankedTensorType::get(shape, dtype);
 }
 
-Value TileBuilder::MakePlaceholderOp(RankedTensorType type, BufferPtr buffer,
+Value TileBuilder::MakePlaceholderOp(MemRefType type, BufferPtr buffer,
                                      StringRef name) {
+  auto tensorType = getRankedTensorType(type);
   IVLOG(5, "TileBuilder::MakePlaceholderOp> " << name.str() << ": "
-                                              << mlir::debugString(type));
-  auto op = impl->builder.create<PlaceholderOp>(impl->loc, type);
+                                              << mlir::debugString(tensorType));
+  auto op = impl->builder.create<PlaceholderOp>(impl->loc, tensorType);
   if (!name.empty()) {
     op.setAttr("name", impl->builder.getStringAttr(name));
   }
@@ -588,7 +589,7 @@ TileBuilder::MakeProgram(StringRef name, const ProgramMutations &mutations,
     }
     // Wrap duplicate outputs
     if (outputs.count(output)) {
-      outputs.insert(MakePrimitiveOp("ident", {output}));
+      outputs.insert(MakeIntrinsicOp("ident", {output}));
     } else {
       outputs.insert(output);
     }

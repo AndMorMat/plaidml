@@ -26,15 +26,23 @@ namespace PlaidMLPlugin {
 InferRequestInternal::Ptr PlaidMLExecutableNetwork::CreateInferRequestImpl(InputsDataMap networkInputs,
                                                                            OutputsDataMap networkOutputs) {
   IVLOG(1, "PlaidMLExecutableNetwork::CreateInferRequestImpl>");
-  std::vector<plaidml::edsl::Tensor> outputs;
+  IVLOG(2, "networkInputs: " << networkInputs);
   IVLOG(2, "networkOutputs: " << networkOutputs);
   IVLOG(3, "tensorIOMap_: " << tensorIOMap_);
+  std::vector<edsl::Tensor> inputs;
+  for (const auto& kvp : networkInputs) {
+    IVLOG(2, "input: " << kvp.first);
+    inputs.push_back(tensorIOMap_.at(kvp.first));
+  }
+  std::vector<edsl::Tensor> outputs;
   for (const auto& kvp : networkOutputs) {
     IVLOG(2, "output: " << kvp.first);
     outputs.push_back(tensorIOMap_.at(kvp.first));
   }
-  auto program = edsl::ProgramBuilder("ie", outputs).compile();
-  return std::make_shared<PlaidMLInferRequest>(networkInputs, networkOutputs, program, tensorIOMap_);
+  Program program = edsl::buildProgram("ie", inputs, outputs);
+  throw std::runtime_error("Stop");
+  program.compile();
+  return std::make_shared<PlaidMLInferRequest>(networkInputs, networkOutputs, program);
 }
 
 PlaidMLExecutableNetwork::PlaidMLExecutableNetwork(const ICNNNetwork& network, const std::string& device) {
@@ -49,13 +57,13 @@ PlaidMLExecutableNetwork::PlaidMLExecutableNetwork(const ICNNNetwork& network, c
       IE_ASSERT(node->description() == "Constant");
       auto type = to_plaidml(node->get_element_type());
       std::vector<int64_t> dims{node->get_shape().begin(), node->get_shape().end()};
-      TensorShape ts(type, dims);
-      Buffer buffer(device, ts);
+      TensorShape shape(type, dims);
+      Buffer buffer(shape);
       // Specially resolve the constant-creating op
       Context ctx{node.get()};
       auto* layer = dynamic_cast<ngraph::opset1::Constant*>(ctx.layer);
       buffer.copy_from(layer->get_data_ptr());
-      auto tensor = edsl::Constant(type, buffer, dims, node->get_friendly_name());
+      auto tensor = edsl::Constant(shape, buffer, node->get_friendly_name());
       IVLOG(3, "    Adding constant named '" << node->get_output_tensor_name(0) << "'");
       tensorMap_[node->get_output_tensor_name(0)] = tensor;
       continue;
@@ -63,7 +71,7 @@ PlaidMLExecutableNetwork::PlaidMLExecutableNetwork(const ICNNNetwork& network, c
       IE_ASSERT(node->get_output_size() == 1);
       std::vector<int64_t> dims{node->get_shape().begin(), node->get_shape().end()};
       auto type = to_plaidml(node->get_element_type());
-      auto tensor = edsl::Placeholder(edsl::LogicalShape(type, dims), node->get_friendly_name());
+      auto tensor = edsl::Placeholder(type, dims, node->get_friendly_name());
       IVLOG(3, "    Adding placeholder named '" << node->get_output_tensor_name(0) << "'");
       tensorMap_[node->get_output_tensor_name(0)] = tensor;
       IVLOG(3, "    Also, aliasing " << node->get_output_tensor_name(0) << " as " << node->get_friendly_name());

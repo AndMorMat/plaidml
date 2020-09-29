@@ -40,7 +40,7 @@ plaidml_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//plaidml/core",
-        "//pmlc/dialect/tile",
+        "//pmlc/ast",
         "//pmlc/util",
         "@llvm-project//llvm:Support",
     ],
@@ -59,6 +59,7 @@ py_library(
 
 plaidml_cc_test(
     name = "cc_docs",
+    size = "small",
     srcs = ["edsl_docs.cc"],
     linkstatic = True,
     deps = [
@@ -66,16 +67,15 @@ plaidml_cc_test(
         "//plaidml:testenv",
         "//plaidml/exec",
     ],
-    size = "small",
 )
 
 py_test(
     name = "py_docs",
+    size = "small",
     srcs = ["edsl_docs.py"],
     main = "edsl_docs.py",
     deps = [
         ":py",
         "//plaidml/exec:py",
     ],
-    size = "small",
 )

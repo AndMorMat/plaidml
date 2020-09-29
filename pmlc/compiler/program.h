@@ -28,11 +28,13 @@ struct PassInfo {
 struct Program {
   std::string entry;
   std::string tileIR;
-  mlir::OwningModuleRef module;
-  std::vector<ProgramArgument> arguments;
-  std::vector<PassInfo> passes;
   mlir::MLIRContext context;
+  mlir::OwningModuleRef module;
+  std::vector<mlir::Type> inputs;
+  std::vector<mlir::Type> outputs;
+  std::vector<PassInfo> passes;
 
+  Program();
   explicit Program(mlir::ModuleOp module);
   explicit Program(mlir::StringRef source);
   explicit Program(std::unique_ptr<llvm::MemoryBuffer> buffer);

@@ -84,12 +84,12 @@ public:
   mlir::Value MakeScalarConstantOp(uint64_t value);
   mlir::Value MakeScalarConstantOp(int64_t value);
   mlir::Value MakeScalarConstantOp(double value);
-  mlir::Value MakePrimitiveOp(llvm::StringRef fn,
+  mlir::Value MakeIntrinsicOp(llvm::StringRef fn,
                               llvm::ArrayRef<mlir::Value> args);
   mlir::Value MakeCastOp(mlir::Value tensor, mlir::Type dtype);
   mlir::Value MakeTraceOp(mlir::Value tensor, const char *msg);
   mlir::Value MakeDimOp(mlir::Value tensor, unsigned dim);
-  mlir::Value MakePlaceholderOp(mlir::RankedTensorType type,
+  mlir::Value MakePlaceholderOp(mlir::MemRefType type,
                                 pmlc::util::BufferPtr buffer,
                                 llvm::StringRef name);
   mlir::Value MakeConstantOp(int64_t value);

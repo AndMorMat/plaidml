@@ -35,7 +35,7 @@ plaidml_cc_library(
     deps = [
         "//pmlc:all_passes_and_dialects",
         "//pmlc/target/demo",
-        "//pmlc/target/intel_gen",
+        # "//pmlc/target/intel_gen",
         "//pmlc/target/x86",
     ],
 )
@@ -45,8 +45,8 @@ plaidml_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pmlc/rt/llvm",
-        "//pmlc/rt/vulkan",
-     ],
+        # "//pmlc/rt/vulkan",
+    ],
 )
 
 jsonnet_to_json(

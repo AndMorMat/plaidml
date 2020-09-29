@@ -345,7 +345,8 @@ public:
       throw std::runtime_error("Invalid EngineKind");
     }
 
-    if (program->arguments.size() != bufptrs.size()) {
+    size_t numArguments = program->inputs.size() + program->outputs.size();
+    if (numArguments != bufptrs.size()) {
       throw std::runtime_error("Program arguments and bufptrs size mismatch");
     }
 
@@ -368,9 +369,16 @@ public:
     }
 
     descriptors.reserve(bufptrs.size());
-    for (unsigned i = 0; i < bufptrs.size(); i++) {
-      descriptors.emplace_back(bufptrs[i], program->arguments[i].shape);
+    for (unsigned i = 0; i < program->inputs.size(); i++) {
+      descriptors.emplace_back(bufptrs[i],
+                               program->inputs[i].cast<RankedTensorType>());
       ptrs[i] = descriptors[i].ptr();
+    }
+    for (unsigned i = 0; i < program->outputs.size(); i++) {
+      size_t j = program->inputs.size() + i;
+      descriptors.emplace_back(bufptrs[j],
+                               program->outputs[i].cast<RankedTensorType>());
+      ptrs[j] = descriptors[j].ptr();
     }
   }
 

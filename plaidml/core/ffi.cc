@@ -9,128 +9,57 @@
 #include <utility>
 #include <vector>
 
-#include "mlir/Support/DebugStringHelper.h"
-
 #include "plaidml/core/internal.h"
 #include "plaidml/core/settings.h"
 #include "pmlc/util/env.h"
 #include "pmlc/util/logging.h"
 #include "pmlc/util/util.h"
 
-using mlir::FloatType;
-using mlir::IntegerType;
-using mlir::MLIRContext;
-using mlir::Type;
+using plaidml::core::convertFromDataType;
+using plaidml::core::convertIntoDataType;
+using plaidml::core::ffi_vector;
 using plaidml::core::ffi_wrap;
 using plaidml::core::ffi_wrap_void;
-using plaidml::core::GlobalContext;
 using plaidml::core::Settings;
+using pmlc::util::AdoptedBuffer;
+using pmlc::util::DataType;
 using pmlc::util::SimpleBuffer;
+
+namespace ast = pmlc::ast;
 
 extern const char* PLAIDML_VERSION;
 
 namespace plaidml::core {
 
-plaidml_datatype convertIntoDataType(Type type) {
-  if (type.isInteger(1)) {
-    return PLAIDML_DATA_BOOLEAN;
-  }
-  if (type.isSignedInteger(8)) {
-    return PLAIDML_DATA_INT8;
-  }
-  if (type.isUnsignedInteger(8)) {
-    return PLAIDML_DATA_UINT8;
-  }
-  if (type.isSignedInteger(16)) {
-    return PLAIDML_DATA_INT16;
-  }
-  if (type.isUnsignedInteger(16)) {
-    return PLAIDML_DATA_UINT16;
-  }
-  if (type.isSignedInteger(32)) {
-    return PLAIDML_DATA_INT32;
-  }
-  if (type.isUnsignedInteger(32)) {
-    return PLAIDML_DATA_UINT32;
-  }
-  if (type.isSignedInteger(64)) {
-    return PLAIDML_DATA_INT64;
-  }
-  if (type.isUnsignedInteger(64)) {
-    return PLAIDML_DATA_UINT64;
-  }
-  if (type.isBF16()) {
-    return PLAIDML_DATA_BFLOAT16;
-  }
-  if (type.isF16()) {
-    return PLAIDML_DATA_FLOAT16;
-  }
-  if (type.isF32()) {
-    return PLAIDML_DATA_FLOAT32;
-  }
-  if (type.isF64()) {
-    return PLAIDML_DATA_FLOAT64;
-  }
-  llvm_unreachable("Cannot convert into plaidml_datatype");
+plaidml_datatype convertIntoDataType(DataType type) { return static_cast<plaidml_datatype>(type); }
+
+DataType convertFromDataType(plaidml_datatype dtype) { return static_cast<DataType>(dtype); }
+
+DataType convertFromType(mlir::Type type) {
+  if (type.isInteger(1)) return DataType::i1;
+  if (type.isSignedInteger(8)) return DataType::si8;
+  if (type.isUnsignedInteger(8)) return DataType::ui8;
+  if (type.isSignedInteger(16)) return DataType::si16;
+  if (type.isUnsignedInteger(16)) return DataType::ui16;
+  if (type.isSignedInteger(32)) return DataType::si32;
+  if (type.isUnsignedInteger(32)) return DataType::ui32;
+  if (type.isSignedInteger(64)) return DataType::si64;
+  if (type.isUnsignedInteger(64)) return DataType::ui64;
+  if (type.isBF16()) return DataType::bf16;
+  if (type.isF16()) return DataType::f16;
+  if (type.isF32()) return DataType::f32;
+  if (type.isF64()) return DataType::f64;
+  llvm_unreachable("Invalid mlir::Type");
 }
 
-Type convertFromDataType(plaidml_datatype dtype, MLIRContext* context) {
-  switch (dtype) {
-    case PLAIDML_DATA_BOOLEAN:
-      return IntegerType::get(1, context);
-    case PLAIDML_DATA_BFLOAT16:
-      return FloatType::getBF16(context);
-    case PLAIDML_DATA_FLOAT16:
-      return FloatType::getF16(context);
-    case PLAIDML_DATA_FLOAT32:
-      return FloatType::getF32(context);
-    case PLAIDML_DATA_FLOAT64:
-      return FloatType::getF64(context);
-    case PLAIDML_DATA_INT8:
-      return IntegerType::get(8, IntegerType::Signed, context);
-    case PLAIDML_DATA_INT16:
-      return IntegerType::get(16, IntegerType::Signed, context);
-    case PLAIDML_DATA_INT32:
-      return IntegerType::get(32, IntegerType::Signed, context);
-    case PLAIDML_DATA_INT64:
-      return IntegerType::get(64, IntegerType::Signed, context);
-    case PLAIDML_DATA_UINT8:
-      return IntegerType::get(8, IntegerType::Unsigned, context);
-    case PLAIDML_DATA_UINT16:
-      return IntegerType::get(16, IntegerType::Unsigned, context);
-    case PLAIDML_DATA_UINT32:
-      return IntegerType::get(32, IntegerType::Unsigned, context);
-    case PLAIDML_DATA_UINT64:
-      return IntegerType::get(64, IntegerType::Unsigned, context);
-    default:
-      break;
-  }
-  llvm_unreachable("Invalid plaidml_datatype");
-}
-
-plaidml_strings* toFFI(std::vector<std::string> strings) {
-  std::unique_ptr<plaidml_string* []> elts { new plaidml_string*[strings.size()] };
-  auto result = std::make_unique<plaidml_strings>();
-
-  std::size_t idx = 0;
-  try {
-    while (idx < strings.size()) {
-      elts[idx] = new plaidml_string{std::move(strings[idx])};
-      ++idx;
-    }
-  } catch (...) {
-    while (idx) {
-      delete elts[idx--];
-    }
-    throw;
-  }
-
-  result->size = strings.size();
-  result->elts = elts.release();
-  return result.release();
+ast::TensorShape convertFromRankedTensorType(mlir::Type type) {
+  auto rankedTensorType = type.cast<mlir::RankedTensorType>();
+  return ast::TensorShape(convertFromType(rankedTensorType.getElementType()), rankedTensorType.getShape());
 }
 
 }  // namespace plaidml::core
+
+using plaidml::core::convertFromRankedTensorType;
 
 extern "C" {
 
@@ -254,6 +183,15 @@ void plaidml_strings_free(  //
   });
 }
 
+void plaidml_shapes_free(  //
+    plaidml_error* err,    //
+    plaidml_shapes* shapes) {
+  ffi_wrap_void(err, [&] {
+    delete[] shapes->elts;
+    delete shapes;
+  });
+}
+
 void plaidml_shape_free(  //
     plaidml_error* err,   //
     plaidml_shape* shape) {
@@ -265,16 +203,13 @@ void plaidml_shape_free(  //
 plaidml_shape* plaidml_shape_alloc(  //
     plaidml_error* err,              //
     plaidml_datatype dtype,          //
-    size_t ndims,                    //
+    size_t rank,                     //
     const int64_t* sizes,            //
     const int64_t* strides) {
   return ffi_wrap<plaidml_shape*>(err, nullptr, [&] {
-    auto ctx = GlobalContext::get();
-    auto elementType = plaidml::core::convertFromDataType(dtype, ctx->getContext());
-    auto sizesArray = llvm::makeArrayRef(sizes, ndims);
-    auto stridesArray = llvm::makeArrayRef(strides, ndims);
-    auto type = ctx->MakeMemRefType(elementType, sizesArray, stridesArray);
-    return new plaidml_shape{type};
+    auto vecSizes = llvm::makeArrayRef(sizes, rank).vec();
+    auto vecStrides = llvm::makeArrayRef(strides, rank).vec();
+    return new plaidml_shape{ast::TensorShape(convertFromDataType(dtype), vecSizes, vecStrides)};
   });
 }
 
@@ -283,7 +218,7 @@ plaidml_shape* plaidml_shape_clone(  //
     plaidml_shape* shape) {
   return ffi_wrap<plaidml_shape*>(err, nullptr, [&] {
     IVLOG(3, "plaidml_shape");
-    return new plaidml_shape{shape->type};
+    return new plaidml_shape{shape->shape};
   });
 }
 
@@ -291,7 +226,7 @@ plaidml_string* plaidml_shape_repr(  //
     plaidml_error* err,              //
     plaidml_shape* shape) {
   return ffi_wrap<plaidml_string*>(err, nullptr, [&] {  //
-    return new plaidml_string{mlir::debugString(shape->type)};
+    return new plaidml_string{shape->shape.str()};
   });
 }
 
@@ -299,52 +234,22 @@ size_t plaidml_shape_get_rank(  //
     plaidml_error* err,         //
     plaidml_shape* shape) {
   return ffi_wrap<size_t>(err, 0, [&] {  //
-    return shape->type.getRank();
+    return shape->shape.getRank();
   });
 }
 
 plaidml_datatype plaidml_shape_get_dtype(  //
     plaidml_error* err,                    //
     plaidml_shape* shape) {
-  return ffi_wrap<plaidml_datatype>(err, PLAIDML_DATA_INVALID, [&] {
-    auto elementType = shape->type.getElementType();
-    if (auto floatType = elementType.dyn_cast<mlir::FloatType>()) {
-      switch (floatType.getWidth()) {
-        case 16:
-          return PLAIDML_DATA_FLOAT16;
-        case 32:
-          return PLAIDML_DATA_FLOAT32;
-        case 64:
-          return PLAIDML_DATA_FLOAT64;
-        default:
-          break;
-      }
-    }
-    if (auto integerType = elementType.dyn_cast<mlir::IntegerType>()) {
-      switch (integerType.getWidth()) {
-        case 1:
-          return PLAIDML_DATA_BOOLEAN;
-        case 8:
-          return PLAIDML_DATA_INT8;
-        case 16:
-          return PLAIDML_DATA_INT16;
-        case 32:
-          return PLAIDML_DATA_INT32;
-        case 64:
-          return PLAIDML_DATA_INT64;
-        default:
-          break;
-      }
-    }
-    throw std::runtime_error("Invalid DType for plaidml_shape");
-  });
+  return ffi_wrap<plaidml_datatype>(err, PLAIDML_DATA_INVALID,
+                                    [&] { return convertIntoDataType(shape->shape.elementType); });
 }
 
 plaidml_integers* plaidml_shape_get_sizes(  //
     plaidml_error* err,                     //
     plaidml_shape* shape) {
   return ffi_wrap<plaidml_integers*>(err, 0, [&] {
-    const auto& sizes = shape->type.getShape();
+    const auto& sizes = shape->shape.sizes;
     auto ret = new plaidml_integers{sizes.size(), new int64_t[sizes.size()]};
     for (unsigned i = 0; i < sizes.size(); i++) {
       if (sizes[i] < 0) {
@@ -361,11 +266,7 @@ plaidml_integers* plaidml_shape_get_strides(  //
     plaidml_error* err,                       //
     plaidml_shape* shape) {
   return ffi_wrap<plaidml_integers*>(err, 0, [&] {
-    int64_t offset;
-    llvm::SmallVector<int64_t, 8> strides;
-    if (failed(mlir::getStridesAndOffset(shape->type, strides, offset))) {
-      throw std::runtime_error("Could not retrieve strides");
-    }
+    const auto& strides = shape->shape.strides;
     auto ret = new plaidml_integers{strides.size(), new int64_t[strides.size()]};
     for (unsigned i = 0; i < strides.size(); i++) {
       ret->elts[i] = strides[i];
@@ -378,7 +279,7 @@ uint64_t plaidml_shape_get_nbytes(  //
     plaidml_error* err,             //
     plaidml_shape* shape) {
   return ffi_wrap<uint64_t>(err, 0, [&]() -> uint64_t {  //
-    return pmlc::util::getByteSize(shape->type);
+    return shape->shape.getByteSize();
   });
 }
 
@@ -401,7 +302,6 @@ plaidml_buffer* plaidml_buffer_clone(  //
 
 plaidml_buffer* plaidml_buffer_alloc(  //
     plaidml_error* err,                //
-    const char* device_id,             //
     size_t size) {
   return ffi_wrap<plaidml_buffer*>(err, nullptr, [&] {
     auto buffer = std::make_shared<SimpleBuffer>(size);
@@ -409,54 +309,101 @@ plaidml_buffer* plaidml_buffer_alloc(  //
   });
 }
 
-plaidml_view* plaidml_buffer_mmap_current(  //
-    plaidml_error* err,                     //
+plaidml_buffer* plaidml_buffer_adopt(  //
+    plaidml_error* err,                //
+    void* data,                        //
+    size_t size) {
+  return ffi_wrap<plaidml_buffer*>(err, nullptr, [&] {
+    auto buffer = std::make_shared<AdoptedBuffer>(size, static_cast<char*>(data));
+    return new plaidml_buffer{buffer};
+  });
+}
+
+char* plaidml_buffer_data(  //
+    plaidml_error* err,     //
     plaidml_buffer* buffer) {
-  return ffi_wrap<plaidml_view*>(err, nullptr, [&] {  //
-    return new plaidml_view{buffer->buffer->MapCurrent()};
-  });
-}
-
-plaidml_view* plaidml_buffer_mmap_discard(  //
-    plaidml_error* err,                     //
-    plaidml_buffer* buffer) {
-  return ffi_wrap<plaidml_view*>(err, nullptr, [&] {  //
-    return new plaidml_view{buffer->buffer->MapDiscard()};
-  });
-}
-
-void plaidml_view_free(  //
-    plaidml_error* err,  //
-    plaidml_view* view) {
-  ffi_wrap_void(err, [&] {  //
-    delete view;
-  });
-}
-
-char* plaidml_view_data(  //
-    plaidml_error* err,   //
-    plaidml_view* view) {
   return ffi_wrap<char*>(err, nullptr, [&] {  //
-    return view->view->data();
+    return buffer->buffer->data();
   });
 }
 
-size_t plaidml_view_size(  //
-    plaidml_error* err,    //
-    plaidml_view* view) {
+size_t plaidml_buffer_size(  //
+    plaidml_error* err,      //
+    plaidml_buffer* buffer) {
   return ffi_wrap<size_t>(err, 0, [&] {  //
-    return view->view->size();
+    return buffer->buffer->size();
   });
 }
 
-void plaidml_view_writeback(  //
-    plaidml_error* err,       //
-    plaidml_view* view) {
-  ffi_wrap_void(err, [&] {  //
-    view->view->WriteBack();
+void plaidml_program_free(  //
+    plaidml_error* err,     //
+    plaidml_program* program) {
+  ffi_wrap_void(err, [&] {
+    IVLOG(3, "plaidml_program_free");
+    delete program;
   });
 }
 
-VariantHolder::VariantHolder(const Variant& inner) : inner(inner) {}
+plaidml_string* plaidml_program_repr(  //
+    plaidml_error* err,                //
+    plaidml_program* program) {
+  return ffi_wrap<plaidml_string*>(err, nullptr, [&] {  //
+    return new plaidml_string{program->program->tileIR};
+  });
+}
+
+plaidml_shapes* plaidml_program_get_inputs(  //
+    plaidml_error* err,                      //
+    plaidml_program* program) {
+  return ffi_wrap<plaidml_shapes*>(err, nullptr, [&] {  //
+    std::vector<ast::TensorShape> shapes;
+    for (mlir::Type type : program->program->inputs) {
+      shapes.emplace_back(convertFromRankedTensorType(type));
+    }
+    return ffi_vector<plaidml_shapes, plaidml_shape>(shapes);
+  });
+}
+
+plaidml_shapes* plaidml_program_get_outputs(  //
+    plaidml_error* err,                       //
+    plaidml_program* program) {
+  return ffi_wrap<plaidml_shapes*>(err, nullptr, [&] {  //
+    std::vector<ast::TensorShape> shapes;
+    for (mlir::Type type : program->program->outputs) {
+      shapes.emplace_back(convertFromRankedTensorType(type));
+    }
+    return ffi_vector<plaidml_shapes, plaidml_shape>(shapes);
+  });
+}
+
+plaidml_kvps* plaidml_program_get_passes(  //
+    plaidml_error* err,                    //
+    plaidml_program* program) {
+  return ffi_wrap<plaidml_kvps*>(err, nullptr, [&] {
+    const auto& passes = program->program->passes;
+    auto ret = new plaidml_kvps{passes.size(), new plaidml_kvp[passes.size()]};
+    size_t i = 0;
+    for (auto it = passes.begin(), eit = passes.end(); it != eit; ++it, ++i) {
+      ret->elts[i].key = new plaidml_string{it->name};
+      ret->elts[i].value = new plaidml_string{it->ir};
+    }
+    return ret;
+  });
+}
+
+void plaidml_program_compile(  //
+    plaidml_error* err,        //
+    plaidml_program* program,  //
+    bool debug,                //
+    const char* raw_target) {
+  return ffi_wrap_void(err, [&] {  //
+    std::string target(raw_target);
+    if (target.empty()) {
+      target = Settings::Instance()->get("PLAIDML_TARGET");
+    }
+    auto dumpDir = pmlc::util::getEnvVar("PLAIDML_DUMP");
+    program->program->compile(target, /*collectPasses=*/debug, /*dumpDir=*/dumpDir);
+  });
+}
 
 }  // extern "C"

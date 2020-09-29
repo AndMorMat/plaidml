@@ -384,8 +384,7 @@ def batch_dot(x, y, axes=None, name=None):
                 ] + [yidxs[N] for N in range(1, len(yidxs)) if N != axes[1]]
         X.bind_dims(*xdims)
         Y.bind_dims(*ydims)
-        O = edsl.TensorOutput(*odims)
-        O[oidxs] += X[xidxs] * Y[yidxs]
+        O = edsl.Contraction().outShape(*odims).outAccess(oidxs).sum(X[xidxs] * Y[yidxs]).build()
     if len(odims) == 1:
         O = plaidml_op.unsqueeze(O, [1])
     return _KerasNode('batch_dot', tensor=O)
@@ -506,8 +505,11 @@ def categorical_crossentropy(target, output, from_logits=False):
     O.bind_dims(*input_dims)
     T.bind_dims(*input_dims)
     LO = edsl.log(O)
-    TR = edsl.TensorOutput(*fixed_dims)
-    TR[fixed_idxs] += T[fixed_idxs + [y]] * LO[fixed_idxs + [y]]
+    TR = edsl.Contraction() \
+        .outShape(*fixed_dims) \
+        .outAccess(fixed_idxs) \
+        .sum(T[fixed_idxs + [y]] * LO[fixed_idxs + [y]]) \
+        .build()
     R = -TR
     return _KerasNode('categorical_crossentropy', tensor=R)
 
@@ -1142,8 +1144,8 @@ def one_hot(indices, num_classes):
     O_idxs = I_idxs + [c]
     I.bind_dims(*I_dims)
     count.bind_dims(C)
-    O = edsl.TensorOutput(*O_dims)
-    O[O_idxs] = I[I_idxs] == count[c]
+    O = edsl.Contraction().outShape(*O_dims).outAccess(O_idxs).assign(
+        I[I_idxs] == count[c]).build()
     return _KerasNode('one_hot', name='one_hot', tensor=O)
 
 
@@ -1162,8 +1164,7 @@ def ones_like(x, dtype=None, name=None):
     dims = edsl.TensorDims(ndim)
     idxs = edsl.TensorIndexes(ndim)
     I.bind_dims(*dims)
-    O = edsl.TensorOutput(*dims)
-    O[idxs] = one[0]
+    O = edsl.Contraction().outShape(*dims).outAccess(idxs).assign(one[0]).build()
     return _KerasNode('ones_like', name=name, tensor=O)
 
 
@@ -1407,15 +1408,15 @@ def rnn(step_function,
         I_idxs = [batch_idx] + idxs
         I.bind_dims(*I_dims)
         O_dims = [batch_dim] + [t] + dims
-        O = edsl.TensorOutput(*O_dims)
         O_idxs = [batch_idx] + [ii] + idxs
-        O[O_idxs] = I[I_idxs]
+        OC = edsl.Contraction().outShape(*O_dims).outAccess(O_idxs).assign(I[I_idxs])
         if prev is None:
             if ii != 0:
                 raise RuntimeError(
                     'Generating RNN at time step {} with no previous time step'.format(ii))
         else:
-            O.use_default(prev.tensor)
+            OC.simplify(False)
+        O = OC.build()
         return _KerasNode('time_expand', name='time_expand', tensor=O)
 
     states = initial_states
@@ -1747,6 +1748,5 @@ def zeros_like(x, dtype=None, name=None):
     dims = edsl.TensorDims(ndim)
     idxs = edsl.TensorIndexes(ndim)
     I.bind_dims(*dims)
-    O = edsl.TensorOutput(*dims)
-    O[idxs] = zero[0]
+    O = edsl.Contraction().outShape(*dims).outAccess(idxs).assign(zero[0]).build()
     return _KerasNode('zeros_like', name=name, tensor=O)
