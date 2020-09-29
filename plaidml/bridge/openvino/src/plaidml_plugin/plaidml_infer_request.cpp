@@ -39,8 +39,12 @@ static Blob::Ptr make_shared_blob(const TensorDesc& desc) {
 namespace PlaidMLPlugin {
 
 PlaidMLInferRequest::PlaidMLInferRequest(const InputsDataMap& networkInputs, const OutputsDataMap& networkOutputs,
-                                         const plaidml::Program& program)
-    : InferRequestInternal(networkInputs, networkOutputs) {
+                                         const edsl::Program& program,
+                                         const std::map<std::string, edsl::Tensor>& tensorIONameMap)
+    : InferRequestInternal(networkInputs, networkOutputs),
+      tensorIONameMap_(tensorIONameMap),
+      binder_(program),
+      exec_(binder_.compile()) {
   IVLOG(1, "Program:\n" << program.str());
   AllocateInputs();
   AllocateOutputs();
@@ -50,7 +54,7 @@ PlaidMLInferRequest::PlaidMLInferRequest(const InputsDataMap& networkInputs, con
 void PlaidMLInferRequest::InferImpl() {
   IVLOG(1, "PlaidMLInferRequest::InferImpl>");
   IVLOG(2, "  _inputs: " << _inputs);
-  //   IVLOG(3, "  tensorIOMap_: " << tensorIOMap_);
+  IVLOG(3, "  tensorIONameMap_: " << tensorIONameMap_);
   execDataPreprocessing(_inputs);
 
   SyncInput();
@@ -81,19 +85,19 @@ void PlaidMLInferRequest::AllocateOutputs() {
 }
 
 void PlaidMLInferRequest::SyncInput() {
-  //   for (const auto& kvp : _networkInputs) {
-  //     const auto& name = kvp.first;
-  //     const auto& tensor = tensorIOMap_.at(name);
-  //     // binder_.input(tensor).copy_from(_inputs[name]->buffer());
-  //   }
+  for (const auto& kvp : _networkInputs) {
+    const auto& name = kvp.first;
+    const auto& tensor = tensorIONameMap_.at(name);
+    binder_.input(tensor).copy_from(_inputs[name]->buffer());
+  }
 }
 
 void PlaidMLInferRequest::SyncOutput() {
-  //   for (const auto& kvp : _networkOutputs) {
-  //     const auto& name = kvp.first;
-  //     const auto& tensor = tensorIOMap_.at(name);
-  //     // binder_.output(tensor).copy_into(_outputs[name]->buffer());
-  //   }
+  for (const auto& kvp : _networkOutputs) {
+    const auto& name = kvp.first;
+    const auto& tensor = tensorIONameMap_.at(name);
+    binder_.output(tensor).copy_into(_outputs[name]->buffer());
+  }
 }
 
 }  // namespace PlaidMLPlugin
