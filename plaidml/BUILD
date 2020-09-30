@@ -33,7 +33,6 @@ plaidml_cc_library(
     name = "targets",
     visibility = ["//visibility:public"],
     deps = [
-        "//pmlc:all_passes_and_dialects",
         "//pmlc/target/demo",
         "//pmlc/target/intel_gen",
         "//pmlc/target/intel_gen_ocl_spirv",
@@ -46,7 +45,7 @@ plaidml_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pmlc/rt/llvm",
-        # "//pmlc/rt/vulkan",
+        "//pmlc/rt/vulkan",
     ],
 )
 

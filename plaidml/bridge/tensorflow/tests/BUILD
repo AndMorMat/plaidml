@@ -143,7 +143,10 @@ tf_cc_test(
     data = [":i3d_test_genrule"],
     extra_copts = ["-fexceptions"],
     linkstatic = 1,
-    tags = ["skip_windows"],
+    tags = [
+        "manual",
+        "skip_windows",
+    ],
     deps = [
         ":archive_cc_fbs",
         ":codegen_test",

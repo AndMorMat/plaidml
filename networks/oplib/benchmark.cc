@@ -22,7 +22,7 @@ BENCHMARK_DEFINE_F(resnet50, run)(benchmark::State& state) {  // NOLINT[runtime/
   auto program = buildResnet50();
   auto executable = createDefaultExecutable(program);
   for (auto _ : state) {
-    executable->run();
+    executable.run();
   }
   state.SetItemsProcessed(state.iterations());
 }

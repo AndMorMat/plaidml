@@ -5,8 +5,10 @@ load("//bzl:plaidml.bzl", "plaidml_cc_test")
 load("//pmlc:lit.bzl", "lit_test")
 
 exports_files(
-    ["edsl_test-skip.intel_gen.txt",
-     "edsl_test-skip.intel_gen_ocl_spirv.txt"],
+    [
+        "edsl_test-skip.intel_gen.txt",
+        "edsl_test-skip.intel_gen_ocl_spirv.txt",
+    ],
 )
 
 plaidml_cc_test(
@@ -26,7 +28,7 @@ plaidml_cc_test(
         "//plaidml:intel_gen_ocl_spirv": [":edsl_test-skip.intel_gen_ocl_spirv.txt"],
         "//conditions:default": [],
     }),
-    # linkstatic = True,
+    linkstatic = True,
     toolchains = ["//plaidml:settings"],
     visibility = ["//visibility:public"],
     deps = [

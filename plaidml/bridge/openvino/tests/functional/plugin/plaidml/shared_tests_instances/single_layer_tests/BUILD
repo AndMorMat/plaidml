@@ -1,5 +1,5 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
-load("//bzl:plaidml.bzl", "PLAIDML_LINKOPTS")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("//bzl:plaidml.bzl", "plaidml_cc_library", "plaidml_cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -9,6 +9,7 @@ TAGS = [
 ]
 
 DATA = [
+    ":plugins",
     "//plaidml/bridge/openvino:plaidml-plugin",
 ]
 
@@ -23,7 +24,20 @@ COPTS = select({
 
 # TODO: Pull forward the PlaidML-OpenVINO tests from the 2020.2 OV version to remove exclusions
 
-cc_library(
+write_file(
+    name = "plugins",
+    out = "plugins.xml",
+    content = [
+        "<ie>",
+        "   <plugins>",
+        "       <plugin name='PlaidML' location='plaidml/bridge/openvino/libplaidml-plugin.so'/>",
+        "   </plugins>",
+        "</ie>",
+        "",
+    ],
+)
+
+plaidml_cc_library(
     name = "lib",
     srcs = glob(
         ["*.cpp"],
@@ -72,7 +86,7 @@ cc_library(
     deps = DEPS,
 )
 
-cc_library(
+plaidml_cc_library(
     name = "smoke_lib",
     srcs = glob(
         ["*.cpp"],
@@ -146,10 +160,9 @@ cc_library(
     deps = DEPS,
 )
 
-cc_test(
+plaidml_cc_test(
     name = "single_layer_tests",
     data = DATA,
-    linkopts = PLAIDML_LINKOPTS,
     tags = TAGS + ["manual"],
     deps = [
         ":lib",
@@ -160,10 +173,9 @@ cc_test(
 # Tests suitable for CI, skips flakey, broken, and long tests
 cc_test(
     name = "smoke",
-    data = DATA,
-    linkopts = PLAIDML_LINKOPTS,
-    tags = TAGS,
     size = "large",
+    data = DATA,
+    tags = TAGS,
     deps = [
         ":smoke_lib",
         "//plaidml/bridge/openvino:testenv",
