@@ -14,9 +14,11 @@
 #include "pmlc/conversion/comp_to_llvm/pass_detail.h"
 #include "pmlc/conversion/comp_to_llvm/passes.h"
 #include "pmlc/conversion/comp_to_llvm/utils.h"
+#include "pmlc/dialect/comp/ir/dialect.h"
 
 namespace pmlc::conversion::comp_to_llvm {
 
+namespace comp = pmlc::dialect::comp;
 namespace spirv = mlir::spirv;
 namespace LLVM = mlir::LLVM;
 namespace gpu = mlir::gpu;
@@ -112,9 +114,57 @@ getManglingTypes(mlir::MLIRContext *context) {
       mlir::FloatType::getF32(context),    mlir::FloatType::getF64(context)};
 }
 
+namespace {
+struct ConvertFuncSignature : mlir::OpConversionPattern<mlir::FuncOp> {
+  ConvertFuncSignature(mlir::TypeConverter &typeConverter,
+                       mlir::MLIRContext *context)
+      : mlir::OpConversionPattern<mlir::FuncOp>(typeConverter, context) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::FuncOp op, mlir::ArrayRef<mlir::Value> operands,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    mlir::FunctionType funcTy = op.getType();
+    auto conversion =
+        mlir::TypeConverter::SignatureConversion(funcTy.getNumInputs());
+    auto convertType = [&](mlir::Type type) {
+      mlir::Dialect &dialect = type.getDialect();
+      if (mlir::isa<comp::COMPDialect>(dialect))
+        return getTypeConverter()->convertType(type);
+      return type;
+    };
+    for (unsigned i = 0; i < funcTy.getNumInputs(); ++i) {
+      mlir::Type convertedType = convertType(funcTy.getInput(i));
+      if (!convertedType)
+        return mlir::failure();
+      conversion.addInputs(i, convertedType);
+    }
+    mlir::SmallVector<mlir::Type, 1> newResults;
+    for (const mlir::Type &resultType : funcTy.getResults()) {
+      mlir::Type convertedType = convertType(resultType);
+      if (!convertedType)
+        return mlir::failure();
+      newResults.push_back(convertedType);
+    }
+    mlir::FunctionType newFuncTy =
+        rewriter.getFunctionType(conversion.getConvertedTypes(), newResults);
+    rewriter.updateRootInPlace(op, [&] { op.setType(newFuncTy); });
+    rewriter.applySignatureConversion(&op.getBody(), conversion);
+    return mlir::success();
+  }
+};
+} // namespace
+
 void populateCommonPatterns(mlir::MLIRContext *context,
-                            mlir::TypeConverter &typeConverter) {
+                            mlir::TypeConverter &typeConverter,
+                            mlir::OwningRewritePatternList &patterns) {
+  // ==========================================================================
+  // Type conversion patterns.
+  // ==========================================================================
   LLVM::LLVMType llvmInt8Ptr = LLVM::LLVMType::getInt8PtrTy(context);
+  typeConverter.addConversion(
+      [=](comp::DeviceType deviceType) -> mlir::Optional<mlir::Type> {
+        return llvmInt8Ptr;
+      });
   // Identity conversion for LLVM types.
   typeConverter.addConversion([](LLVM::LLVMType type) { return type; });
   // Conversion between memref and int8 pointer.
@@ -162,6 +212,10 @@ void populateCommonPatterns(mlir::MLIRContext *context,
             builder.getSymbolRefAttr(castFuncName.str()), unrankedBuffer);
         return castOp.getResult(0);
       });
+  // ==========================================================================
+  // Operation conversion patterns.
+  // ==========================================================================
+  patterns.insert<ConvertFuncSignature>(typeConverter, context);
 }
 
 void addCommonFunctionDeclarations(mlir::ModuleOp &module) {
