@@ -24,7 +24,6 @@ using plaidml::core::ffi_vector;
 using plaidml::core::ffi_wrap;
 using plaidml::core::ffi_wrap_void;
 using pmlc::rt::Device;
-using pmlc::rt::EngineKind;
 using pmlc::rt::Executable;
 using pmlc::rt::getDeviceIDs;
 using pmlc::util::BufferPtr;
@@ -96,14 +95,7 @@ plaidml_executable* plaidml_jit(  //
       }
       outputBuffers.push_back(outputs[i]->buffer);
     }
-    EngineKind kind = EngineKind::OrcJIT;
-    auto jit = pmlc::util::getEnvVar("LLVM_JIT");
-    if (jit == "ORC") {
-      kind = EngineKind::OrcJIT;
-    } else if (jit == "MCJIT") {
-      kind = EngineKind::MCJIT;
-    }
-    return new plaidml_executable{Executable::fromProgram(program->program, device, inputBuffers, outputBuffers, kind)};
+    return new plaidml_executable{Executable::fromProgram(program->program, device, inputBuffers, outputBuffers)};
   });
 }
 

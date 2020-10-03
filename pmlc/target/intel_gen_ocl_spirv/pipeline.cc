@@ -25,6 +25,7 @@
 #include "pmlc/conversion/pxa_to_affine/passes.h"
 #include "pmlc/conversion/stdx_to_llvm/passes.h"
 #include "pmlc/conversion/tile_to_pxa/passes.h"
+#include "pmlc/dialect/comp/transforms/passes.h"
 #include "pmlc/dialect/pxa/transforms/passes.h"
 #include "pmlc/dialect/stdx/ir/ops.h"
 #include "pmlc/dialect/stdx/transforms/passes.h"
@@ -36,12 +37,14 @@ using namespace mlir; // NOLINT[build/namespaces]
 
 namespace pmlc::target::intel_gen_ocl_spirv {
 
+namespace comp = pmlc::dialect::comp;
 namespace pxa = pmlc::dialect::pxa;
 
 void pipelineBuilder(OpPassManager &pm) {
   // Bound + pad initial tile code
   pm.addPass(dialect::tile::createComputeBoundsPass());
-  pm.addPass(dialect::tile::createPadPass());
+  pm.addPass(dialect::tile::createPadRangesPass());
+  pm.addPass(dialect::tile::createPadConstraintsPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
 
@@ -52,8 +55,8 @@ void pipelineBuilder(OpPassManager &pm) {
   pm.addPass(createCSEPass());
 
   // Do subgroup or accumulation
-  // pm.addPass(pmlc::dialect::pxa::createSubgroupsPass());
-  pm.addPass(pmlc::dialect::pxa::createTileAccumulatePass());
+  pm.addPass(pmlc::dialect::pxa::createSubgroupsPass());
+  // pm.addPass(pmlc::dialect::pxa::createTileAccumulatePass());
   pm.addPass(pmlc::dialect::pxa::createAffineNormalizePass(/*promote=*/false));
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
@@ -81,7 +84,7 @@ void pipelineBuilder(OpPassManager &pm) {
   pm.addPass(dialect::stdx::createI1StorageToI32Pass());
 
   // Devectorize
-  // pm.addPass(createSubgroupBroadcastPass());
+  pm.addPass(pmlc::target::intel_gen::createSubgroupBroadcastPass());
   pm.addPass(createCSEPass());
 
   // Lower mapped scf.parallel's to GPU
@@ -101,6 +104,7 @@ void pipelineBuilder(OpPassManager &pm) {
         "comp-execenv-runtime=1 comp-execenv-memory-space=11");
     pm.addPass(std::move(convertPass));
   }
+  pm.addPass(comp::createExecEnvCoalescingPass());
 
   // GPU to SPIR-V.
   pm.addPass(createLegalizeStdOpsForSPIRVLoweringPass());
@@ -109,6 +113,7 @@ void pipelineBuilder(OpPassManager &pm) {
   pm.addPass(conversion::gpu_to_spirv::createGPUToSPIRVCustomPass());
 
   // SPIR-V passes for lowering attributes.
+  pm.addPass(createSetSubgroupSizePass());
   pm.addPass(spirv::createLowerABIAttributesPass());
   pm.addPass(spirv::createUpdateVersionCapabilityExtensionPass());
 
