@@ -277,26 +277,28 @@ class TestEdsl(unittest.TestCase):
         K = Placeholder(plaidml.DType.FLOAT32, [3, 3, 1])
         O = conv_1d(I, K)
         program = Program('conv_1d', [I, K], [O])
+        self.runProgram(program)
 
     def test_conv_2d_dilated(self):
         I = Placeholder(plaidml.DType.FLOAT32, [1, 224, 224, 1])
         K = Placeholder(plaidml.DType.FLOAT32, [3, 3, 1, 32])
         O = conv_2d_dilated(I, K)
         program = Program('conv_2d_dilated', [I, K], [O])
+        self.runProgram(program)
 
     def test_complex_conv_2d(self):
         I = Placeholder(plaidml.DType.FLOAT32, [1, 224, 224, 3, 3])
         K = Placeholder(plaidml.DType.FLOAT32, [3, 3, 3, 3, 32])
         O = complex_conv_2d(I, K, 1, 2, 1, 2)
         program = Program('complex_conv_2d', [I, K], [O])
+        self.runProgram(program)
 
-    @unittest.skip(
-        'TODO: currently segfaults mismatched dimensions error needs to be printed correctly')
     def test_complex_conv_2d_dim_mismatch(self):
         I = Placeholder(plaidml.DType.FLOAT32, [1, 1, 1, 1, 1])
         K = Placeholder(plaidml.DType.FLOAT32, [1, 1, 1, 1, 1])
         O = complex_conv_2d(I, K, 1, 2, 1, 2)
         program = Program('complex_conv_2d', [I, K], [O])
+        self.runProgram(program)
 
     def test_mnist_mlp(self):
         # model.add(Dense(512, activation='relu', input_shape=(784,)))
@@ -313,6 +315,7 @@ class TestEdsl(unittest.TestCase):
         B3 = Placeholder(plaidml.DType.FLOAT32, [10])
         D3 = softmax(dot(D2, K3) + B3)
         program = Program('mnist_mlp', [I, K1, B1, K2, B2, K3, B3], [D3])
+        self.runProgram(program)
 
     def test_mnist_cnn(self):
         # model.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=input_shape))
@@ -337,17 +340,20 @@ class TestEdsl(unittest.TestCase):
         B4 = Placeholder(plaidml.DType.FLOAT32, [100])
         D2 = softmax(dot(D1, K4) + B4)
         program = Program('mnist_cnn', [I, K1, B1, K2, B2, K3, B3, K4, B4], [D2])
+        self.runProgram(program)
 
     def test_arg_max(self):
         I = Placeholder(plaidml.DType.FLOAT32, [1, 10, 10])
         O = arg_max(I)
         program = Program('arg_max', [I], [O])
         self.assertEqual(str(O.compute_shape()), '1x10xui32')
+        self.runProgram(program)
 
     def test_global_min(self):
         I = Placeholder(plaidml.DType.FLOAT32, [10, 10, 10], name='I')
         O = global_min(I)
         program = Program('global_min', [I], [O])
+        self.runProgram(program)
 
     def test_unique_names(self):
         A = Placeholder(plaidml.DType.FLOAT32, name='A')
@@ -355,6 +361,7 @@ class TestEdsl(unittest.TestCase):
         C0 = Placeholder(plaidml.DType.FLOAT32, name='C')
         C1 = Placeholder(plaidml.DType.FLOAT32, name='C')
         program = Program('unique_names', [A, B, C0, C1], [A + B + C0 + C1])
+        self.runProgram(program)
 
     def test_lars_momentum4d(self):
         X_shape = TensorShape(plaidml.DType.FLOAT32, [4, 7, 3, 9])
@@ -365,6 +372,7 @@ class TestEdsl(unittest.TestCase):
         LR = Placeholder(LR_Shape)
         R = lars_momentum(X, Grad, Veloc, LR, 1. / 1024., 1. / 2048., 1. / 8.)
         program = Program('lars_momentum4d', [X, Grad, Veloc, LR], R)
+        self.runProgram(program)
 
     def test_repeat_elts(self):
         I = Placeholder(plaidml.DType.FLOAT32, [10, 10, 10])
@@ -379,6 +387,7 @@ class TestEdsl(unittest.TestCase):
             .add_constraint(k < 3) \
             .build()
         program = Program('repeat_elts', [I], [O])
+        self.runProgram(program)
 
     def test_use_default(self):
         P = Placeholder(plaidml.DType.FLOAT32, [1, 7, 10, 10])
@@ -393,6 +402,7 @@ class TestEdsl(unittest.TestCase):
             .assign(I[b, i1, i2]) \
             .build()
         program = Program('use_default', [I, P], [O])
+        self.runProgram(program)
 
     def test_defract(self):
         I = Placeholder(plaidml.DType.FLOAT32, [3], name='I')
@@ -407,7 +417,6 @@ class TestEdsl(unittest.TestCase):
             [2, 5, 4, 9, 6],
         ])
 
-    @unittest.skip('FIXME: incorrect output')
     def test_defract_short(self):
         I = Placeholder(plaidml.DType.FLOAT32, [3], name='I')
         i, j = TensorIndexes(2)
@@ -419,7 +428,6 @@ class TestEdsl(unittest.TestCase):
             [0, 1, 0, 2, 0, 3],
         ])
 
-    @unittest.skip('FIXME: incorrect output')
     def test_defract_long(self):
         shape = [1, 3, 3, 1]
         I = Placeholder(plaidml.DType.FLOAT32, shape, name='I')

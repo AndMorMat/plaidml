@@ -79,12 +79,14 @@ private:
 
 } // namespace
 
-Program::Program() : module(ModuleOp::create(UnknownLoc::get(&context))) {}
+Program::Program(int x, llvm::StringRef name)
+    : module(ModuleOp::create(UnknownLoc::get(&context), name)) {}
 
 Program::Program(mlir::ModuleOp module) : module(module) {}
 
-Program::Program(mlir::StringRef source)
-    : Program(llvm::MemoryBuffer::getMemBuffer(source)) {}
+Program Program::fromSource(mlir::StringRef source) {
+  return Program(llvm::MemoryBuffer::getMemBuffer(source));
+}
 
 Program::Program(std::unique_ptr<llvm::MemoryBuffer> buffer) {
   llvm::SourceMgr sourceMgr;

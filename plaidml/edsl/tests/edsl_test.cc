@@ -304,14 +304,12 @@ TEST_F(CppEdsl, Add) {
   checkProgram(program, {A_input, B_input}, {C_output});
 }
 
-TEST_F(CppEdsl, DISABLED_ConstAdd) {
+TEST_F(CppEdsl, ConstAdd) {
   std::vector<int64_t> shape = {4};
   std::vector<int> a = {4, 3, 2, 1};
   std::vector<int> b = {1, 2, 3, 4};
-  auto bufferA = makeBuffer(DType::INT32, shape, a);
-  auto bufferB = makeBuffer(DType::INT32, shape, b);
-  auto A = Constant(DType::INT32, shape, bufferA, "A");
-  auto B = Constant(DType::INT32, shape, bufferB, "B");
+  auto A = Constant(makeBuffer(DType::INT32, shape, a), "A");
+  auto B = Constant(makeBuffer(DType::INT32, shape, b), "B");
   auto O = A + B;
   auto program = makeProgram("const_add", {}, {O});
 

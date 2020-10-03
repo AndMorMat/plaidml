@@ -10,6 +10,8 @@
 #include <utility>
 #include <vector>
 
+#include "llvm/Support/FormatVariadic.h"
+
 #include "plaidml/core/internal.h"
 #include "plaidml/core/settings.h"
 #include "pmlc/rt/device_id.h"
@@ -25,6 +27,8 @@ using pmlc::rt::Device;
 using pmlc::rt::EngineKind;
 using pmlc::rt::Executable;
 using pmlc::rt::getDeviceIDs;
+using pmlc::util::BufferPtr;
+using pmlc::util::TensorShape;
 using namespace mlir;  // NOLINT[build/namespaces]
 
 extern "C" {
@@ -62,14 +66,35 @@ plaidml_executable* plaidml_jit(  //
       device = plaidml::core::Settings::Instance()->get("PLAIDML_DEVICE");
     }
     IVLOG(1, "JITing for device: " << device);
-    auto exec = std::make_unique<plaidml_executable>();
-    std::vector<void*> bufptrs(ninputs + noutputs);
-    for (unsigned i = 0; i < ninputs; i++) {
-      bufptrs[i] = inputs[i]->buffer->data();
+    if (program->program->inputs.size() != ninputs) {
+      throw std::runtime_error(llvm::formatv("Program expects {0} inputs, but {1} were specified",
+                                             program->program->inputs.size(), ninputs));
     }
+    if (program->program->outputs.size() != noutputs) {
+      throw std::runtime_error(llvm::formatv("Program expects {0} outputs, but {1} were specified",
+                                             program->program->outputs.size(), noutputs));
+    }
+    std::vector<BufferPtr> inputBuffers;
+    for (unsigned i = 0; i < ninputs; i++) {
+      TensorShape actual = inputs[i]->buffer->shape();
+      TensorShape expected = TensorShape::fromType(program->program->inputs[i]);
+      if (actual != expected) {
+        throw std::runtime_error(
+            llvm::formatv("Shape mismatch for input buffer #{0}, expected '{1}' but '{2}' was specified", i,
+                          expected.str(), actual.str()));
+      }
+      inputBuffers.push_back(inputs[i]->buffer);
+    }
+    std::vector<BufferPtr> outputBuffers;
     for (unsigned i = 0; i < noutputs; i++) {
-      unsigned j = ninputs + i;
-      bufptrs[j] = outputs[i]->buffer->data();
+      TensorShape actual = outputs[i]->buffer->shape();
+      TensorShape expected = TensorShape::fromType(program->program->outputs[i]);
+      if (actual != expected) {
+        throw std::runtime_error(
+            llvm::formatv("Shape mismatch for output buffer #{0}, expected '{1}' but '{2}' was specified", i,
+                          expected.str(), actual.str()));
+      }
+      outputBuffers.push_back(outputs[i]->buffer);
     }
     EngineKind kind = EngineKind::OrcJIT;
     auto jit = pmlc::util::getEnvVar("LLVM_JIT");
@@ -78,8 +103,7 @@ plaidml_executable* plaidml_jit(  //
     } else if (jit == "MCJIT") {
       kind = EngineKind::MCJIT;
     }
-    exec->exec = Executable::fromProgram(program->program, device, bufptrs, kind);
-    return exec.release();
+    return new plaidml_executable{Executable::fromProgram(program->program, device, inputBuffers, outputBuffers, kind)};
   });
 }
 

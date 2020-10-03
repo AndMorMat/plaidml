@@ -33,6 +33,7 @@ using llvm::Error;
 using pmlc::compiler::Program;
 using pmlc::rt::EngineKind;
 using pmlc::rt::Executable;
+using pmlc::util::BufferPtr;
 
 namespace {
 /// This options struct prevents the need for global static initializers, and
@@ -76,7 +77,8 @@ int JitRunnerMain(int argc, char **argv) {
   if (options.optMCJIT.getValue())
     kind = EngineKind::MCJIT;
   auto executable = Executable::fromProgram(
-      program, options.optDeviceID.getValue(), ArrayRef<void *>{}, kind);
+      program, options.optDeviceID.getValue(), ArrayRef<BufferPtr>{},
+      ArrayRef<BufferPtr>{}, kind);
   executable->invoke();
 
   return EXIT_SUCCESS;

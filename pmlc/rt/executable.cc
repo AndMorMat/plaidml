@@ -323,9 +323,10 @@ struct StopWatch {
 class ExecutableImpl final : public Executable {
 public:
   ExecutableImpl(const std::shared_ptr<Program> &program,
-                 llvm::StringRef deviceID, ArrayRef<void *> bufptrs,
-                 EngineKind kind)
-      : program(program), device(getDevice(deviceID)), ptrs(bufptrs.size()) {
+                 llvm::StringRef deviceID,
+                 mlir::ArrayRef<util::BufferPtr> inputBuffers,
+                 mlir::ArrayRef<util::BufferPtr> outputBuffers, EngineKind kind)
+      : program(program), device(getDevice(deviceID)) {
     static std::once_flag is_initialized;
     std::call_once(is_initialized, []() {
       llvm::InitializeNativeTarget();
@@ -345,9 +346,12 @@ public:
       throw std::runtime_error("Invalid EngineKind");
     }
 
-    size_t numArguments = program->inputs.size() + program->outputs.size();
-    if (numArguments != bufptrs.size()) {
-      throw std::runtime_error("Program arguments and bufptrs size mismatch");
+    if (inputBuffers.size() != program->inputs.size()) {
+      throw std::runtime_error("Program input arguments and buffers mismatch");
+    }
+    if (outputBuffers.size() != program->outputs.size()) {
+      throw std::runtime_error(
+          "Program outputs arguments and buffers mismatch");
     }
 
     auto ctx = std::make_unique<llvm::LLVMContext>();
@@ -368,17 +372,18 @@ public:
       throw std::runtime_error("jitEntry function is null");
     }
 
-    descriptors.reserve(bufptrs.size());
-    for (unsigned i = 0; i < program->inputs.size(); i++) {
-      descriptors.emplace_back(bufptrs[i],
-                               program->inputs[i].cast<RankedTensorType>());
-      ptrs[i] = descriptors[i].ptr();
+    for (auto [type, buffer] : llvm::zip(program->inputs, inputBuffers)) {
+      descriptors.emplace_back(buffer->data(), type.cast<RankedTensorType>());
+      ptrs.push_back(descriptors.back().ptr());
     }
-    for (unsigned i = 0; i < program->outputs.size(); i++) {
-      size_t j = program->inputs.size() + i;
-      descriptors.emplace_back(bufptrs[j],
-                               program->outputs[i].cast<RankedTensorType>());
-      ptrs[j] = descriptors[j].ptr();
+    for (const compiler::ConstantArgument &arg : program->constants) {
+      descriptors.emplace_back(arg.buffer->data(),
+                               arg.type.cast<RankedTensorType>());
+      ptrs.push_back(descriptors.back().ptr());
+    }
+    for (auto [type, buffer] : llvm::zip(program->outputs, outputBuffers)) {
+      descriptors.emplace_back(buffer->data(), type.cast<RankedTensorType>());
+      ptrs.push_back(descriptors.back().ptr());
     }
   }
 
@@ -406,11 +411,12 @@ private:
 
 } // namespace
 
-std::unique_ptr<Executable>
-Executable::fromProgram(const std::shared_ptr<Program> &program,
-                        llvm::StringRef deviceID, ArrayRef<void *> bufptrs,
-                        EngineKind kind) {
-  return std::make_unique<ExecutableImpl>(program, deviceID, bufptrs, kind);
+std::unique_ptr<Executable> Executable::fromProgram(
+    const std::shared_ptr<Program> &program, llvm::StringRef deviceID,
+    mlir::ArrayRef<util::BufferPtr> inputBuffers,
+    mlir::ArrayRef<util::BufferPtr> outputBuffers, EngineKind kind) {
+  return std::make_unique<ExecutableImpl>(program, deviceID, inputBuffers,
+                                          outputBuffers, kind);
 }
 
 } // namespace pmlc::rt

@@ -4,7 +4,6 @@ load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//bzl:plaidml.bzl", "plaidml_cc_library", "plaidml_cc_test")
 
 SDK_HDRS = [
-    "autodiff.h",
     "edsl.h",
     "ffi.h",
 ]
@@ -31,11 +30,7 @@ filegroup(
 
 plaidml_cc_library(
     name = "edsl",
-    srcs = [
-        "derivs.cc",
-        "derivs.h",
-        "ffi.cc",
-    ],
+    srcs = ["ffi.cc"],
     hdrs = SDK_HDRS,
     visibility = ["//visibility:public"],
     deps = [

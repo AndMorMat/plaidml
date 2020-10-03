@@ -5,35 +5,44 @@
 #include <memory>
 #include <vector>
 
+#include "pmlc/util/shape.h"
+
 namespace pmlc::util {
 
 class Buffer;
 using BufferPtr = std::shared_ptr<Buffer>;
 
-// Buffer represents a buffer residing on some Platform.
 class Buffer {
 public:
   virtual ~Buffer() {}
   virtual size_t size() const = 0;
   virtual char *data() = 0;
   virtual BufferPtr clone() = 0;
+  virtual TensorShape shape() = 0;
 };
 
 // A simple buffer backed by a std::vector
 class SimpleBuffer : public Buffer,
                      public std::enable_shared_from_this<SimpleBuffer> {
 public:
-  explicit SimpleBuffer(size_t size) : data_(size) {}
+  explicit SimpleBuffer(const TensorShape &shape)
+      : shape_(shape), data_(shape.getByteSize()) {}
 
-  explicit SimpleBuffer(const std::vector<char> &data) : data_(data) {}
+  SimpleBuffer(const TensorShape &shape, const std::vector<char> &data)
+      : shape_(shape), data_(data) {}
 
   size_t size() const final { return data_.size(); }
 
   char *data() final { return data_.data(); }
 
-  BufferPtr clone() final { return std::make_shared<SimpleBuffer>(data_); }
+  BufferPtr clone() final {
+    return std::make_shared<SimpleBuffer>(shape_, data_);
+  }
+
+  TensorShape shape() final { return shape_; }
 
 private:
+  TensorShape shape_;
   std::vector<char> data_;
 };
 
@@ -41,17 +50,21 @@ private:
 class AdoptedBuffer : public Buffer,
                       public std::enable_shared_from_this<AdoptedBuffer> {
 public:
-  AdoptedBuffer(size_t size, char *data) : size_(size), data_(data) {}
+  AdoptedBuffer(const TensorShape &shape, size_t size, char *data)
+      : shape_(shape), size_(size), data_(data) {}
 
   size_t size() const final { return size_; }
 
   char *data() final { return data_; }
 
   BufferPtr clone() final {
-    return std::make_shared<AdoptedBuffer>(size_, data_);
+    return std::make_shared<AdoptedBuffer>(shape_, size_, data_);
   }
 
+  TensorShape shape() final { return shape_; }
+
 private:
+  TensorShape shape_;
   size_t size_;
   char *data_;
 };

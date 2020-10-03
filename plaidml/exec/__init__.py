@@ -30,6 +30,7 @@ class Executable(ForeignObject):
     __ffi_del__ = lib.plaidml_executable_free
 
     def __init__(self, program, inputs=[], outputs=[], device=''):
+        logger.debug('Executable({}, {})'.format(inputs, outputs))
         inputs = [x.as_ptr() for x in inputs]
         outputs = [x.as_ptr() for x in outputs]
         ffi_obj = ffi_call(

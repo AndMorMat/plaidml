@@ -197,7 +197,7 @@ StatusOr<::plaidml::Program> PlaidMLCompiler::ProgramFromHloModule(std::unique_p
           ::plaidml::TensorShape shape(type, dims);
           const Literal& literal = instruction->literal();
           auto buf = makeBuffer(shape, literal.untyped_data());
-          auto op = edsl::Constant(shape, buf, meta_name);
+          auto op = edsl::Constant(buf, meta_name);
           instr_map.insert(std::make_pair(cur_instr_id, op));
           break;
         }
@@ -454,7 +454,7 @@ StatusOr<::plaidml::Program> PlaidMLCompiler::ProgramFromHloModule(std::unique_p
           std::iota(x.begin(), x.end(), 0);
           auto shape = ::plaidml::TensorShape(type, dims);
           auto buf = makeBuffer(shape, x.data());
-          auto op = edsl::Constant(shape, buf, "iota");
+          auto op = edsl::Constant(buf, "iota");
           instr_map.insert(std::make_pair(cur_instr_id, op));
           break;
         }

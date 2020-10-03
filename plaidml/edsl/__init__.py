@@ -390,6 +390,14 @@ class Contraction(object):
 
     def build(self):
 
+        if isinstance(self.__rhs, IndexedTensor):
+            rhs = self.__rhs
+        elif isinstance(self.__rhs, Tensor):
+            rhs = IndexedTensor(lib.PLAIDML_COMBO_OP_NONE, ref=self.__rhs, idxs=())
+        else:
+            tensor = Tensor(value=self.__rhs)
+            rhs = IndexedTensor(lib.PLAIDML_COMBO_OP_NONE, ref=tensor, idxs=())
+
         def make_list(idxs):
             if isinstance(idxs, tuple) or isinstance(idxs, list):
                 return idxs
@@ -408,7 +416,7 @@ class Contraction(object):
         tensor = Tensor(expr=ffi_call(
             lib.plaidml_expr_contraction,
             self.__agg_op,
-            self.__rhs._op,
+            rhs._op,
             len(raw_idxs),
             raw_idxs,
             raw_dims,
@@ -417,10 +425,10 @@ class Contraction(object):
             self.__name.encode(),
         ))
 
-        if self.__rhs._op == lib.PLAIDML_COMBO_OP_NONE:
-            operands = [self.__rhs]
+        if rhs._op == lib.PLAIDML_COMBO_OP_NONE:
+            operands = [rhs]
         else:
-            operands = self.__rhs._args
+            operands = rhs._args
 
         for operand in operands:
             idxs = [_wrap_poly(x) for x in make_list(operand._idxs)]
@@ -441,6 +449,7 @@ class Contraction(object):
                 constraint.rhs.as_ptr(),
             )
 
+        ffi_call(lib.plaidml_contraction_build, tensor.as_ptr())
         return tensor
 
 
@@ -503,15 +512,6 @@ class Tensor(ForeignObject):
         elif expr is None:
             raise ValueError('One of dims= or expr= must be specified.')
         super(Tensor, self).__init__(expr)
-
-    # def set_param_value(self, buffer):
-    #     # Changes the value of a parameter tensor (i.e. one explicitly set to a buffer value)
-    #     # Illegal on other tensors
-    #     self._buffer = buffer
-    #     ffi_call(lib.plaidml_expr_param_reset, self.__ffi_obj__, buffer.as_ptr())
-
-    # def __hash__(self):
-    #     return hash((self.as_ptr(), self._dims, self._is_contraction))
 
     def __getitem__(self, key):
         return IndexedTensor(lib.PLAIDML_COMBO_OP_NONE, ref=self, idxs=key)
@@ -635,9 +635,8 @@ class Tensor(ForeignObject):
         raw_dims = [x.as_ptr() for x in dims]
         self._methodcall(lib.plaidml_expr_bind_dims, len(raw_dims), raw_dims)
 
-    # bind a concrete shape to this tensor
-    def bind(self, shape):
-        self._methodcall(lib.plaidml_expr_bind_shape, shape.as_ptr())
+    def element(self, ordinal):
+        return Tensor(expr=self._methodcall(lib.plaidml_expr_element, ordinal))
 
 
 class TensorRef:
@@ -703,12 +702,10 @@ def TensorIndexes(count):
     return [TensorIndex() for i in range(count)]
 
 
-def Constant(dtype_or_shape, buffer, dims=[], name=''):
+def Constant(buffer, dims=[], name=''):
     """Creates a tensor with constant values.
 
     Args:
-        dtype_or_shape (DType | TensorShape): A data type or a shape can be
-            specified. If a shape is specified, the `dims` parameter is ignored.
         buffer (Buffer): A Buffer that stores the values of the ``Constant``.
         dims (list, optional): Specifies the dimensions of the ``Constant``.
         name (string, optional): A name to be assigned to the ``Tensor``.
@@ -716,15 +713,7 @@ def Constant(dtype_or_shape, buffer, dims=[], name=''):
     Returns:
         Tensor: The constant ``Tensor``.
     """
-    if isinstance(dtype_or_shape, TensorShape):
-        shape = dtype_or_shape
-    elif isinstance(dtype_or_shape, DType):
-        shape = TensorShape(dtype=dtype_or_shape, sizes=dims)
-    else:
-        raise TypeError('Unsupported type {} for dtype_or_shape={}'.format(
-            type(dtype_or_shape), dtype_or_shape))
-    return Tensor(
-        expr=ffi_call(lib.plaidml_expr_constant, shape.as_ptr(), buffer.as_ptr(), name.encode()))
+    return Tensor(expr=ffi_call(lib.plaidml_expr_constant, buffer.as_ptr(), name.encode()))
 
 
 def Placeholder(dtype_or_shape, dims=[], name=''):
@@ -875,19 +864,6 @@ def gather(x, y):
     return intrinsic('gather', x, y)
 
 
-def gradients(loss, variables):
-    wrts = [x.as_ptr() for x in variables]
-    raw_grads = ffi.new('plaidml_expr*[]', len(wrts))
-    ffi_call(
-        lib.plaidml_expr_gradient,
-        len(wrts),
-        wrts,
-        loss.as_ptr(),
-        raw_grads,
-    )
-    return [Tensor(expr=x) for x in raw_grads]
-
-
 def ident(x):
     """Returns the identity of ``x``.
 
@@ -969,13 +945,15 @@ def prng(state, shape):
     by ``state``.
 
     Args:
-        state (Tensor): The seed values for the ``prng`` operation.
+        state (Tensor): The state of the pseudorandom number generator.
         shape (Tensor): The desired shape of the tensor of pseudorandom numbers.
 
     Returns:
         Tensor: The tensor of pseudorandom numbers.
+        Tensor: The updated state of the pseudorandom number generator.
     """
-    return intrinsic('prng', state, *shape)
+    x = intrinsic('prng', state, *shape)
+    return x.element(0), x.element(1)
 
 
 def reshape(x, dims):

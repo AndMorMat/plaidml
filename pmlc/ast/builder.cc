@@ -20,6 +20,7 @@
 #include "llvm/Support/FormatVariadic.h"
 
 #include "pmlc/ast/ast.h"
+#include "pmlc/ast/eval.h"
 #include "pmlc/dialect/eltwise/ir/ops.h"
 #include "pmlc/dialect/tile/ir/ops.h"
 #include "pmlc/util/logging.h"
@@ -30,10 +31,13 @@ namespace pmlc::ast {
 
 using compiler::Program;
 using pmlc::util::DataType;
+using pmlc::util::TensorShape;
 namespace eltwise = pmlc::dialect::eltwise;
 namespace tile = pmlc::dialect::tile;
 
 namespace {
+
+static constexpr const char *kEntrypoint = "main";
 
 class OpBuilder : public mlir::OpBuilder {
 public:
@@ -66,7 +70,8 @@ public:
     case DataType::f64:
       return getF64Type();
     default:
-      throw std::runtime_error("Invalid DataType");
+      throw std::runtime_error(llvm::formatv("OpBuilder> Invalid DataType: {0}",
+                                             util::stringifyDataType(dtype)));
       break;
     }
   }
@@ -130,10 +135,6 @@ public:
   explicit AstTraversal(const ProgramArguments &args) {
     for (const ExprNodePtr &expr : args.outputs) {
       push(expr);
-    }
-    for (const ProgramUpdate &update : args.updates) {
-      push(update.src);
-      push(update.dst);
     }
     while (stack.size()) {
       Entry entry = stack.top();
@@ -231,9 +232,11 @@ struct IndexCollector : PolyVisitor<IndexCollector> {
 };
 
 struct ContractionBuilder : PolyVisitor<ContractionBuilder, AffineExpr> {
-  ContractionBuilder(OpBuilder &builder, ExprNodeContraction *node)
-      : builder(builder), context(builder.getContext()), node(node),
-        resultType(builder.getRankedTensorType(node->getShape())) {
+  ContractionBuilder(OpBuilder &builder, Evaluator *evaluator,
+                     ExprNodeContraction *node)
+      : builder(builder), context(builder.getContext()), evaluator(evaluator),
+        node(node),
+        resultType(builder.getRankedTensorType(evaluator->getShape(node))) {
     // First collect all idxs to determine the number of dimensions needed
     // overall for the Contraction.
     for (const PolyNodePtr &idx : node->sinkIdxs) {
@@ -352,7 +355,7 @@ struct ContractionBuilder : PolyVisitor<ContractionBuilder, AffineExpr> {
     // -lhs > -rhs             multiply -1
     // rhs - lhs > 0           add rhs
     // rhs - lhs - 1 >= 0      subtract 1
-    int64_t rhs = constraint.rhs->eval();
+    int64_t rhs = evaluator->evaluate(constraint.rhs);
     auto expr = rhs - makeExpr(constraint.lhs) - 1;
     return simplifyAffineExpr(expr, collector.idxs.size(), 0);
   }
@@ -366,7 +369,7 @@ struct ContractionBuilder : PolyVisitor<ContractionBuilder, AffineExpr> {
   }
 
   AffineExpr visitDim(const PolyNodeDim *node) {
-    int64_t value = node->dim->eval();
+    int64_t value = evaluator->evaluate(node->dim);
     return builder.getAffineConstantExpr(value);
   }
 
@@ -405,6 +408,7 @@ struct ContractionBuilder : PolyVisitor<ContractionBuilder, AffineExpr> {
 
   OpBuilder &builder;
   MLIRContext *context;
+  Evaluator *evaluator;
   ExprNodeContraction *node;
   IndexCollector collector;
   SmallVector<Value, 3> tensors;
@@ -416,38 +420,55 @@ struct ContractionBuilder : PolyVisitor<ContractionBuilder, AffineExpr> {
 
 struct ProgramBuilder {
   explicit ProgramBuilder(llvm::StringRef name)
-      : name(name), program(std::make_shared<compiler::Program>()),
+      : program(std::make_shared<compiler::Program>(0, name)),
         context(&program->context), loc(UnknownLoc::get(context)),
         module(*program->module), builder(module) {}
 
   std::shared_ptr<Program> build(const ProgramArguments &args) {
-    for (const ExprNodePtr &node : args.inputs) {
-      TensorShape shape = node->getShape();
-      program->inputs.emplace_back(builder.getRankedTensorType(shape));
+    std::vector<Type> inputTypes;
+    std::vector<ExprNodePtr> inputNodes;
+    for (auto item : llvm::enumerate(args.inputs)) {
+      if (args.shapes.size()) {
+        auto *node = llvm::cast<ast::ExprNodeInput>(item.value().get());
+        node->shape = args.shapes[item.index()];
+      }
+      TensorShape shape = evaluator.getShape(item.value().get());
+      RankedTensorType rankedTensorType = builder.getRankedTensorType(shape);
+      inputTypes.push_back(rankedTensorType);
+      program->inputs.emplace_back(rankedTensorType);
+      inputNodes.push_back(item.value());
     }
 
     for (const ExprNodePtr &node : args.outputs) {
-      TensorShape shape = node->getShape();
+      TensorShape shape = evaluator.getShape(node.get());
       RankedTensorType rankedTensorType = builder.getRankedTensorType(shape);
       program->outputs.emplace_back(rankedTensorType);
     }
 
+    std::vector<ExprNodePtr> flat = getFlatAst(args);
+    for (const ExprNodePtr &node : flat) {
+      if (auto *constTensor = llvm::dyn_cast<ExprNodeConstTensor>(node.get())) {
+        TensorShape shape = constTensor->buffer->shape();
+        RankedTensorType rankedTensorType = builder.getRankedTensorType(shape);
+        program->constants.emplace_back(
+            compiler::ConstantArgument{rankedTensorType, constTensor->buffer});
+        inputTypes.emplace_back(rankedTensorType);
+        inputNodes.push_back(node);
+      }
+    }
+
     FunctionType funcType =
-        FunctionType::get(program->inputs, program->outputs, context);
-    FuncOp funcOp = FuncOp::create(loc, name, funcType, {});
+        FunctionType::get(inputTypes, program->outputs, context);
+    FuncOp funcOp = FuncOp::create(loc, kEntrypoint, funcType, {});
     Block *body = funcOp.addEntryBlock();
     builder.setInsertionPointToStart(body);
     module.push_back(funcOp);
 
-    for (auto pair : llvm::zip(args.inputs, funcOp.getArguments())) {
-      ExprNodePtr node = std::get<0>(pair);
-      Value blockArg = std::get<1>(pair);
+    for (auto [node, blockArg] : llvm::zip(inputNodes, funcOp.getArguments())) {
       builder.addNode(node, blockArg);
     }
 
-    std::vector<ExprNodePtr> flat = getFlatAst(args);
     for (const ExprNodePtr &node : flat) {
-      IVLOG(1, "node: " << node->str());
       Value value =
           llvm::TypeSwitch<ExprNode *, Value>(node.get())
               .Case<ExprNodeCast>(
@@ -461,9 +482,8 @@ struct ProgramBuilder {
               .Case<ExprNodeConstFloat>([&](ExprNodeConstFloat *node) {
                 return handleConstFloat(node);
               })
-              .Case<ExprNodeConstTensor>([&](ExprNodeConstTensor *node) {
-                return handleConstTensor(node);
-              })
+              .Case<ExprNodeConstTensor>(
+                  [&](ExprNodeConstTensor *node) { return nullptr; })
               .Case<ExprNodeContraction>([&](ExprNodeContraction *node) {
                 return handleContraction(node);
               })
@@ -482,28 +502,29 @@ struct ProgramBuilder {
       }
     }
 
-    std::vector<Value> returnOperands;
+    llvm::SetVector<Value> returnOperands;
     for (const ExprNodePtr &node : args.outputs) {
       Value value = builder.lookupNode(node);
       if (!value) {
-        throw std::runtime_error("Output not found in while building program.");
+        throw std::runtime_error("Output not found while building program.");
       }
       auto defOp = value.getDefiningOp();
-      if (!defOp || dyn_cast<tile::ReshapeOp>(defOp)) {
+      if (!defOp || isa<tile::ReshapeOp>(defOp) ||
+          returnOperands.count(value)) {
         value = builder.create<eltwise::IdentOp>(loc, value);
       }
-      returnOperands.emplace_back(value);
+      returnOperands.insert(value);
     }
-    builder.create<ReturnOp>(loc, returnOperands);
+    builder.create<ReturnOp>(loc, returnOperands.getArrayRef());
 
-    program->entry = name;
+    program->entry = kEntrypoint;
     program->tileIR = debugString(*module);
     return program;
   }
 
   Value handleCast(ExprNodeCast *node) {
-    TensorShape shape = node->expr->getShape();
-    Type elementType = builder.getElementType(node->dtype);
+    TensorShape shape = evaluator.getShape(node);
+    Type elementType = builder.getElementType(shape.elementType);
     RankedTensorType resultType =
         RankedTensorType::get(shape.sizes, elementType);
     Value tensor = builder.lookupNode(node->expr);
@@ -525,17 +546,13 @@ struct ProgramBuilder {
     return builder.makeScalarConstantIntOp(type, node->value);
   }
 
-  Value handleConstTensor(ExprNodeConstTensor *node) {
-    // TODO
-    throw std::runtime_error("NYI: ExprNodeConstTensor");
-  }
-
   Value handleContraction(ExprNodeContraction *node) {
-    return ContractionBuilder(builder, node).build();
+    return ContractionBuilder(builder, &evaluator, node).build();
   }
 
   Value handleDim(ExprNodeDim *node) {
-    return builder.create<tile::ConstantOp>(loc, node->dim->eval());
+    int64_t value = evaluator.evaluate(node->dim);
+    return builder.create<tile::ConstantOp>(loc, value);
   }
 
   Value handleElement(ExprNodeElement *node) {
@@ -623,6 +640,7 @@ struct ProgramBuilder {
   Location loc;
   ModuleOp module;
   OpBuilder builder;
+  Evaluator evaluator;
 };
 
 } // namespace
@@ -633,16 +651,19 @@ std::shared_ptr<Program> buildProgram(llvm::StringRef name,
   registerDialect<dialect::tile::TileDialect>();
   registerDialect<dialect::eltwise::EltwiseDialect>();
   registerDialect<StandardOpsDialect>();
+  if (name.empty()) {
+    name = "module";
+  }
   auto program = ProgramBuilder(name).build(args);
-  // PassManager pm(&program->context);
-  // pm.addPass(createCanonicalizerPass());
-  // pm.addPass(createCSEPass());
-  // ModuleOp module = *program->module;
-  // auto result = pm.run(module);
-  // if (failed(result)) {
-  //   IVLOG(2, "\n" << mlir::debugString(module));
-  //   throw std::runtime_error("Program build failure.");
-  // }
+  PassManager pm(&program->context);
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createCSEPass());
+  ModuleOp module = *program->module;
+  auto result = pm.run(module);
+  if (failed(result)) {
+    IVLOG(2, "\n" << mlir::debugString(module));
+    throw std::runtime_error("Program build failure.");
+  }
   return program;
 }
 

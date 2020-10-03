@@ -12,14 +12,16 @@
 #include "llvm/ADT/StringMap.h"
 
 #include "pmlc/ast/ast.h"
+#include "pmlc/ast/eval.h"
 
 namespace pmlc::ast {
 
 struct Intrinsic {
   virtual ~Intrinsic() = default;
-  virtual TensorShape getShape(llvm::ArrayRef<ExprNodePtr> operands,
-                               llvm::ArrayRef<TensorShape> shapes,
-                               size_t ordinal) const = 0;
+
+  virtual util::TensorShapes
+  getShapes(Evaluator *evaluator, llvm::ArrayRef<ExprNodePtr> operands,
+            llvm::ArrayRef<util::TensorShape> shapes) const = 0;
 };
 
 class IntrinsicRegistry {

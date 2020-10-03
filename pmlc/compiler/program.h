@@ -13,16 +13,14 @@
 
 namespace pmlc::compiler {
 
-struct ProgramArgument {
-  bool isInput;
-  mlir::Value value;
-  mlir::RankedTensorType shape;
-  pmlc::util::BufferPtr buffer;
-};
-
 struct PassInfo {
   std::string name;
   std::string ir;
+};
+
+struct ConstantArgument {
+  mlir::Type type;
+  util::BufferPtr buffer;
 };
 
 struct Program {
@@ -32,12 +30,14 @@ struct Program {
   mlir::OwningModuleRef module;
   std::vector<mlir::Type> inputs;
   std::vector<mlir::Type> outputs;
+  std::vector<ConstantArgument> constants;
   std::vector<PassInfo> passes;
 
-  Program();
+  explicit Program(int x, llvm::StringRef name = "");
   explicit Program(mlir::ModuleOp module);
-  explicit Program(mlir::StringRef source);
   explicit Program(std::unique_ptr<llvm::MemoryBuffer> buffer);
+
+  static Program fromSource(llvm::StringRef source);
 
   void compile(mlir::StringRef target, bool collectPasses = false,
                mlir::StringRef dumpDir = "");

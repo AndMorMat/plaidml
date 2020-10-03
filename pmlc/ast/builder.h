@@ -12,15 +12,10 @@
 
 namespace pmlc::ast {
 
-struct ProgramUpdate {
-  ExprNodePtr src;
-  ExprNodePtr dst;
-};
-
 struct ProgramArguments {
   std::vector<ExprNodePtr> inputs;
   std::vector<ExprNodePtr> outputs;
-  std::vector<ProgramUpdate> updates;
+  std::vector<util::TensorShape> shapes;
 };
 
 std::shared_ptr<compiler::Program> buildProgram(llvm::StringRef name,

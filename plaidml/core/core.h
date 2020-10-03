@@ -147,14 +147,12 @@ class TensorShape {
   /// \param dtype DType
   ///
   TensorShape(DType dtype, const std::vector<int64_t>& sizes) {
-    size_t stride = 1;
-    std::vector<int64_t> strides(sizes.size());
-    for (int i = sizes.size() - 1; i >= 0; --i) {
-      strides[i] = stride;
-      stride *= sizes[i];
-    }
-    ptr_ = details::make_ptr(ffi::call<plaidml_shape*>(plaidml_shape_alloc, static_cast<plaidml_datatype>(dtype),
-                                                       sizes.size(), sizes.data(), strides.data()));
+    ptr_ = details::make_ptr(ffi::call<plaidml_shape*>(  //
+        plaidml_shape_alloc,                             //
+        static_cast<plaidml_datatype>(dtype),            //
+        sizes.size(),                                    //
+        sizes.data(),                                    //
+        /*strides=*/nullptr));
   }
 
   ///
@@ -169,8 +167,12 @@ class TensorShape {
     if (sizes.size() != strides.size()) {
       throw std::runtime_error("Sizes and strides must have the same rank.");
     }
-    ptr_ = details::make_ptr(ffi::call<plaidml_shape*>(plaidml_shape_alloc, static_cast<plaidml_datatype>(dtype),
-                                                       sizes.size(), sizes.data(), strides.data()));
+    ptr_ = details::make_ptr(ffi::call<plaidml_shape*>(  //
+        plaidml_shape_alloc,                             //
+        static_cast<plaidml_datatype>(dtype),            //
+        sizes.size(),                                    //
+        sizes.data(),                                    //
+        strides.data()));
   }
 
   // This is an internal constructor.
@@ -288,26 +290,28 @@ class Buffer {
   /// \param shape TensorShape
   ///
   Buffer(void* data, size_t size, const TensorShape& shape)
-      : ptr_(details::make_ptr(ffi::call<plaidml_buffer*>(plaidml_buffer_adopt, data, size))), shape_(shape) {}
+      : ptr_(details::make_ptr(ffi::call<plaidml_buffer*>(plaidml_buffer_adopt, shape.as_ptr(), data, size))) {}
 
   template <typename T>
   Buffer(const std::vector<T>& vec, const TensorShape& shape)
-      : ptr_(details::make_ptr(ffi::call<plaidml_buffer*>(
-            plaidml_buffer_adopt, static_cast<void*>(const_cast<T*>(vec.data())), vec.size() * sizeof(T)))),
-        shape_(shape) {}
+      : ptr_(details::make_ptr(ffi::call<plaidml_buffer*>(   //
+            plaidml_buffer_adopt,                            //
+            shape.as_ptr(),                                  //
+            static_cast<void*>(const_cast<T*>(vec.data())),  //
+            vec.size() * sizeof(T)))) {}
 
   ///
   /// Buffer constructor
   /// \param shape TensorShape
   ///
   explicit Buffer(const TensorShape& shape)
-      : ptr_(details::make_ptr(ffi::call<plaidml_buffer*>(plaidml_buffer_alloc, shape.byte_size()))), shape_(shape) {}
+      : ptr_(details::make_ptr(ffi::call<plaidml_buffer*>(plaidml_buffer_alloc, shape.as_ptr()))) {}
 
   ///
   /// Buffer constructor
   /// \param ptr plaidml_buffer*
   /// \param shape TensorShape
-  explicit Buffer(plaidml_buffer* ptr, const TensorShape& shape) : ptr_(details::make_ptr(ptr)), shape_(shape) {}
+  explicit Buffer(plaidml_buffer* ptr, const TensorShape& shape) : ptr_(details::make_ptr(ptr)) {}
 
   ///
   /// data
@@ -319,6 +323,12 @@ class Buffer {
   ///
   size_t size() { return ffi::call<size_t>(plaidml_buffer_size, as_ptr()); }
 
+  ///
+  /// shape
+  ///
+
+  TensorShape shape() { return TensorShape{ffi::call<plaidml_shape*>(plaidml_buffer_shape, as_ptr())}; }
+
   plaidml_buffer* as_ptr() const { return ptr_.get(); }
 
   void copy_into(void* dst) { memcpy(dst, data(), size()); }
@@ -327,7 +337,6 @@ class Buffer {
 
  private:
   std::shared_ptr<plaidml_buffer> ptr_;
-  TensorShape shape_;
 };
 
 ///

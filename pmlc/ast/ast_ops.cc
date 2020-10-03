@@ -5,6 +5,7 @@
 #include "llvm/ADT/Optional.h"
 
 #include "pmlc/ast/ast.h"
+#include "pmlc/ast/eval.h"
 #include "pmlc/util/logging.h"
 
 using llvm::ArrayRef;
@@ -12,8 +13,11 @@ using llvm::ArrayRef;
 namespace pmlc::ast {
 
 using util::DataType;
+using util::TensorShape;
+using util::TensorShapes;
 
-static llvm::Optional<int64_t> getIntegerValue(const ExprNodePtr &operand) {
+static llvm::Optional<int64_t> getIntegerValue(Evaluator *evaluator,
+                                               const ExprNodePtr &operand) {
   if (auto node = std::dynamic_pointer_cast<ExprNodeConstSigned>(operand)) {
     return node->value;
   }
@@ -21,116 +25,103 @@ static llvm::Optional<int64_t> getIntegerValue(const ExprNodePtr &operand) {
     return node->value;
   }
   if (auto node = std::dynamic_pointer_cast<ExprNodeDim>(operand)) {
-    return node->dim->eval();
+    return evaluator->evaluate(node->dim);
   }
   return llvm::None;
 }
 
 struct BooleanOp : Intrinsic {
-  TensorShape getShape(ArrayRef<ExprNodePtr> operands,
-                       ArrayRef<TensorShape> shapes,
-                       size_t ordinal) const final {
-    IVLOG(1, "BooleanOp");
-    return inferShape(shapes, /*override=*/DataType::i1);
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
+    return {inferShape(shapes, /*override=*/DataType::i1)};
   }
 };
 
 struct IndexOp : Intrinsic {
-  TensorShape getShape(ArrayRef<ExprNodePtr> operands,
-                       ArrayRef<TensorShape> shapes,
-                       size_t ordinal) const final {
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
     if (operands.size() < 1) {
       throw std::runtime_error("'index' requires at least one operand.");
     }
     TensorShape ret(DataType::si32); // TODO
     for (const ExprNodePtr &operand : operands.drop_front()) {
-      auto value = getIntegerValue(operand);
+      auto value = getIntegerValue(evaluator, operand);
       if (!value) {
         throw std::runtime_error("Additional parameters to 'index' must be "
                                  "integers or TensorDims.");
       }
       ret.sizes.push_back(*value);
     }
-    return ret;
+    return {ret};
   }
 };
 
-// struct GatherOp : PrimitiveOp {
-//   LogicalShape ComputeShape(const std::vector<ExprPtr> &args) const final {
-//     if (args.size() != 2) {
-//       throw std::runtime_error("'gather' requires 2 arguments.");
-//     }
-//     auto data = args[0];
-//     auto index = args[1];
-//     if (data->shape.dims.empty()) {
-//       throw std::runtime_error(
-//           "'gather' requires first argument to have at least one
-//           dimension.");
-//     }
-//     if (index->shape.dtype != DataType::INT32) {
-//       // TODO: Handle other integer types?  Floor floats?
-//       throw std::runtime_error("'gather' requires the data type for the
-//       second "
-//                                "argument to be INT32.");
-//     }
-//     std::vector<std::shared_ptr<DimExpr>> dims;
-//     for (size_t i = 0; i < index->shape.dims.size(); i++) {
-//       dims.push_back(index->shape.dims[i].expr);
-//     }
-//     for (size_t i = 1; i < data->shape.dims.size(); i++) {
-//       dims.push_back(data->shape.dims[i].expr);
-//     }
-//     return LogicalShape(data->shape.dtype, dims);
-//   }
-// };
+struct GatherOp : Intrinsic {
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
+    if (operands.size() != 2) {
+      throw std::runtime_error("'gather' requires 2 arguments.");
+    }
+    auto tensor = shapes[0];
+    auto idxs = shapes[1];
+    if (!tensor.getRank()) {
+      throw std::runtime_error(
+          "'gather' requires first operand to have at least one dimension.");
+    }
+    if (idxs.elementType != DataType::si32) {
+      // TODO: Handle other integer types?  Floor floats?
+      throw std::runtime_error("'gather' requires the data type for the second "
+                               "argument to be INT32.");
+    }
+    TensorShape shape{tensor.elementType, idxs.sizes};
+    for (size_t i = 1; i < tensor.getRank(); i++) {
+      shape.sizes.push_back(tensor.sizes[i]);
+    }
+    return {shape};
+  }
+};
 
 struct PrngOp : Intrinsic {
-  TensorShape getShape(ArrayRef<ExprNodePtr> operands,
-                       ArrayRef<TensorShape> shapes,
-                       size_t ordinal) const final {
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
     if (operands.size() < 1) {
       throw std::runtime_error("'prng' requires at least one argument.");
     }
-    if (ordinal == 1) {
-      return shapes[0];
-    }
     std::vector<int64_t> dims;
     for (const ExprNodePtr &operand : operands.drop_front()) {
-      auto value = getIntegerValue(operand);
+      auto value = getIntegerValue(evaluator, operand);
       if (!value) {
         throw std::runtime_error("'prng' has invalid operands, dims must be "
                                  "tensor dimensions");
       }
       dims.push_back(*value);
     }
-    return TensorShape(DataType::f32, dims);
+    return {TensorShape(DataType::f32, dims), shapes[0]};
   }
 };
 
 struct ReshapeOp : Intrinsic {
-  TensorShape getShape(ArrayRef<ExprNodePtr> operands,
-                       ArrayRef<TensorShape> shapes,
-                       size_t ordinal) const final {
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
     if (operands.size() < 1) {
       throw std::runtime_error("'reshape' requires at least one argument.");
     }
     TensorShape ret(shapes[0].elementType);
     for (const ExprNodePtr &operand : operands.drop_front()) {
-      auto value = getIntegerValue(operand);
+      auto value = getIntegerValue(evaluator, operand);
       if (!value) {
         throw std::runtime_error("Additional parameters to 'reshape' must be "
                                  "integers or TensorDims.");
       }
       ret.sizes.push_back(*value);
     }
-    return ret;
+    return {ret};
   }
 };
 
 struct ScatterOp : Intrinsic {
-  TensorShape getShape(ArrayRef<ExprNodePtr> operands,
-                       ArrayRef<TensorShape> shapes,
-                       size_t ordinal) const final {
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
     if (operands.size() != 3) {
       throw std::runtime_error("'scatter' requires 3 operands.");
     }
@@ -152,18 +143,16 @@ struct ScatterOp : Intrinsic {
     for (size_t i = shapes[1].getRank(); i < shapes[0].getRank(); i++) {
       ret.sizes.push_back(shapes[0].sizes[i]);
     }
-    return ret;
+    return {ret};
   }
 };
 
 struct SelectOp : Intrinsic {
-  TensorShape getShape(ArrayRef<ExprNodePtr> operands,
-                       ArrayRef<TensorShape> shapes,
-                       size_t ordinal) const final {
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
     TensorShape shape = inferShape(shapes);
     DataType elementType = inferElementType(shapes.drop_front());
-    if (elementType == DataType::six || elementType == DataType::uix ||
-        elementType == DataType::fx) {
+    if (isAmbiguousDataType(elementType)) {
       throw std::runtime_error(
           "'select' has ambiguous operand types, use a cast");
     }
@@ -173,19 +162,18 @@ struct SelectOp : Intrinsic {
             "'select' has unmatched operand types, use a cast");
       }
     }
-    return TensorShape(elementType, shape.sizes);
+    return {TensorShape(elementType, shape.sizes)};
   }
 };
 
 struct ShapeOp : Intrinsic {
-  TensorShape getShape(ArrayRef<ExprNodePtr> operands,
-                       ArrayRef<TensorShape> shapes,
-                       size_t ordinal) const final {
+  TensorShapes getShapes(Evaluator *evaluator, ArrayRef<ExprNodePtr> operands,
+                         ArrayRef<TensorShape> shapes) const final {
     if (operands.size() != 1) {
       throw std::runtime_error("'shape' requires exactly one argument.");
     }
     int64_t rank = shapes[0].getRank();
-    return TensorShape(DataType::si32, {rank});
+    return {TensorShape(DataType::si32, {rank})};
   }
 };
 
@@ -198,7 +186,7 @@ struct Registration {
     registry->add("cmp_le", std::make_unique<BooleanOp>());
     registry->add("cmp_lt", std::make_unique<BooleanOp>());
     registry->add("cmp_ne", std::make_unique<BooleanOp>());
-    // registry->add("gather", std::make_unique<GatherOp>());
+    registry->add("gather", std::make_unique<GatherOp>());
     registry->add("index", std::make_unique<IndexOp>());
     registry->add("logical_and", std::make_unique<BooleanOp>());
     registry->add("logical_not", std::make_unique<BooleanOp>());

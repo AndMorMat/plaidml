@@ -3,12 +3,9 @@
 #pragma once
 
 #include <algorithm>
-#include <functional>
 #include <memory>
 #include <ostream>
-#include <sstream>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -26,11 +23,6 @@ class TensorDim;
 class TensorIndex;
 struct TensorRef;
 class Value;
-
-using TensorDeriv = std::vector<Tensor> (*)(  //
-    const Tensor& Y,                          //
-    const Tensor& dY,                         //
-    const std::vector<Tensor>& Xs);
 
 namespace details {
 
@@ -662,6 +654,7 @@ inline Tensor Contraction::build() {
         constraint.rhs.as_ptr());
   }
 
+  ffi::call_void(plaidml_contraction_build, ptr);
   return Tensor(ptr);
 }
 
@@ -683,25 +676,14 @@ inline Tensor Tensor::operator[](size_t ordinal) const {
   return Tensor(ffi::call<plaidml_expr*>(plaidml_expr_element, as_ptr(), ordinal));
 }
 
-inline Tensor Constant(        //
-    const TensorShape& shape,  //
-    const Buffer& buffer,      //
+inline Tensor Constant(    //
+    const Buffer& buffer,  //
     const std::string& name) {
   auto ptr = ffi::call<plaidml_expr*>(  //
       plaidml_expr_constant,            //
-      shape.as_ptr(),                   //
       buffer.as_ptr(),                  //
       name.c_str());
   return Tensor(ptr);
-}
-
-inline Tensor Constant(                //
-    DType dtype,                       //
-    const std::vector<int64_t>& dims,  //
-    const Buffer& buffer,              //
-    const std::string& name) {
-  TensorShape shape(dtype, dims);
-  return Constant(shape, buffer, name);
 }
 
 inline Tensor Constant(int value) { return Tensor(value); }
@@ -1263,6 +1245,7 @@ inline Program buildProgram(const std::string& name, const std::vector<Tensor>& 
       name.c_str(),                         //
       inputs.size(),                        //
       input_exprs.data(),                   //
+      /*shapes=*/nullptr,                   //
       outputs.size(),                       //
       output_exprs.data());
   return Program(ptr);

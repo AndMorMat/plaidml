@@ -1780,8 +1780,8 @@ Value image_resize(const Value& value) {
       // Could likely eke out a bit more perf by precomputing K instead of doing it at runtime on device.
 
       // Setup K
-      auto HCoeff = Tensor{1.0 / factors[0]};
-      auto WCoeff = Tensor{1.0 / factors[1]};
+      Tensor HCoeff = cast(Tensor{1.0 / factors[0]}, DType::FLOAT32);
+      Tensor WCoeff = cast(Tensor{1.0 / factors[1]}, DType::FLOAT32);
       TensorDim HFactor{factors[0]};
       TensorDim WFactor{factors[1]};
       TensorIndex j{"j"}, i{"i"}, y{"y"}, x{"x"};
@@ -2148,7 +2148,7 @@ Value pool(const Value& value) {
       }
       return Value{O / total_pool_size};
     } else {
-      auto One = Tensor{1};
+      auto One = cast(Tensor{1}, I.dtype());
       // Note: O_idxs is used in both cases b/c both need indexes of the form
       // x0, x1, ... However, they do not represent the same index values (and
       // notably do not iterate over the same size of dimensions as I_dims !=
@@ -2181,7 +2181,7 @@ Value relu(const Value& value) {
   }
   auto O = select(I < threshold, A * (I - threshold), I);
   if (!max_value.is_none()) {
-    auto M = max_value.as_tensor();
+    auto M = cast(max_value.as_tensor(), I.dtype());
     O = select(O < M, O, M);
   }
   return Value{O};

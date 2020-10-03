@@ -12,10 +12,9 @@
 
 #include "pmlc/util/buffer.h"
 #include "pmlc/util/enums.h"
+#include "pmlc/util/shape.h"
 
 namespace pmlc::ast {
-
-struct TensorShape;
 
 struct ExprNode;
 struct ExprNodeCast;
@@ -66,30 +65,10 @@ enum class AffineOp {
   Sub,
 };
 
-struct TensorShape {
-  util::DataType elementType;
-  std::vector<int64_t> sizes;
-  std::vector<int64_t> strides;
+util::DataType inferElementType(llvm::ArrayRef<util::TensorShape> shapes);
 
-  explicit TensorShape(util::DataType elementType = util::DataType::invalid)
-      : elementType(elementType) {}
-
-  TensorShape(util::DataType elementType, llvm::ArrayRef<int64_t> sizes)
-      : elementType(elementType), sizes(sizes) {}
-
-  TensorShape(util::DataType elementType, llvm::ArrayRef<int64_t> sizes,
-              llvm::ArrayRef<int64_t> strides)
-      : elementType(elementType), sizes(sizes), strides(strides) {}
-
-  std::string str() const;
-  size_t getRank() const { return sizes.size(); }
-  size_t getByteSize() const;
-};
-
-util::DataType inferElementType(llvm::ArrayRef<TensorShape> shapes);
-
-TensorShape inferShape(llvm::ArrayRef<TensorShape> operands,
-                       util::DataType override = util::DataType::invalid);
+util::TensorShape inferShape(llvm::ArrayRef<util::TensorShape> operands,
+                             util::DataType override = util::DataType::invalid);
 
 //
 // Base AST Node
@@ -119,70 +98,57 @@ struct NodeBase : BaseT, std::enable_shared_from_this<ConcreteT> {
 struct ExprNode {
   std::string name;
 
-  explicit ExprNode(llvm::StringRef name = "") : name(name) {}
+  explicit ExprNode(llvm::StringRef name = "");
   virtual ~ExprNode() = default;
   virtual mlir::TypeID getTypeID() const = 0;
   virtual std::string str() const = 0;
-  virtual TensorShape getShape(size_t ordinal = 0) = 0;
-};
-
-struct ExprNodeInput : NodeBase<ExprNodeInput, ExprNode> {
-  using Base = NodeBase<ExprNodeInput, ExprNode>;
-
-  TensorShape shape;
-
-  explicit ExprNodeInput(const TensorShape &shape, llvm::StringRef name = "")
-      : Base(name), shape(shape) {}
-  std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeCast : NodeBase<ExprNodeCast, ExprNode> {
+  using Base = NodeBase<ExprNodeCast, ExprNode>;
+
   util::DataType dtype;
   ExprNodePtr expr;
 
-  explicit ExprNodeCast(util::DataType dtype, const ExprNodePtr &expr)
-      : dtype(dtype), expr(expr) {}
+  explicit ExprNodeCast(util::DataType dtype, const ExprNodePtr &expr);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeConstSigned : NodeBase<ExprNodeConstSigned, ExprNode> {
+  using Base = NodeBase<ExprNodeConstSigned, ExprNode>;
+
   int64_t value;
 
-  explicit ExprNodeConstSigned(int64_t value) : value(value) {}
+  explicit ExprNodeConstSigned(int64_t value);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeConstUnsigned : NodeBase<ExprNodeConstUnsigned, ExprNode> {
+  using Base = NodeBase<ExprNodeConstUnsigned, ExprNode>;
+
   uint64_t value;
 
-  explicit ExprNodeConstUnsigned(uint64_t value) : value(value) {}
+  explicit ExprNodeConstUnsigned(uint64_t value);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeConstFloat : NodeBase<ExprNodeConstFloat, ExprNode> {
+  using Base = NodeBase<ExprNodeConstFloat, ExprNode>;
+
   double value;
 
-  explicit ExprNodeConstFloat(double value) : value(value) {}
+  explicit ExprNodeConstFloat(double value);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeConstTensor : NodeBase<ExprNodeConstTensor, ExprNode> {
   using Base = NodeBase<ExprNodeConstTensor, ExprNode>;
 
-  TensorShape shape;
-  pmlc::util::BufferPtr buffer;
+  util::BufferPtr buffer;
 
-  explicit ExprNodeConstTensor(const TensorShape &shape,
-                               const pmlc::util::BufferPtr &buffer,
-                               llvm::StringRef name = "")
-      : Base(name), shape(shape), buffer(buffer) {}
+  explicit ExprNodeConstTensor(const util::BufferPtr &buffer,
+                               llvm::StringRef name = "");
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct PolyMap {
@@ -202,8 +168,8 @@ struct Constraint {
 struct ExprNodeContraction : NodeBase<ExprNodeContraction, ExprNode> {
   using Base = NodeBase<ExprNodeContraction, ExprNode>;
 
-  pmlc::util::AggregationKind aggKind;
-  pmlc::util::CombinationKind comboKind;
+  util::AggregationKind aggKind;
+  util::CombinationKind comboKind;
   std::vector<DimNodePtr> sinkDims;
   std::vector<PolyNodePtr> sinkIdxs;
   std::vector<PolyMap> srcs;
@@ -211,47 +177,57 @@ struct ExprNodeContraction : NodeBase<ExprNodeContraction, ExprNode> {
   bool simplify = true;
   ExprNodePtr init;
 
-  explicit ExprNodeContraction(llvm::StringRef name = "") : Base(name) {}
+  explicit ExprNodeContraction(llvm::StringRef name = "");
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeDim : NodeBase<ExprNodeDim, ExprNode> {
+  using Base = NodeBase<ExprNodeDim, ExprNode>;
+
   DimNodePtr dim;
 
-  explicit ExprNodeDim(const DimNodePtr &dim) : dim(dim) {}
+  explicit ExprNodeDim(const DimNodePtr &dim);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeElement : NodeBase<ExprNodeElement, ExprNode> {
+  using Base = NodeBase<ExprNodeElement, ExprNode>;
+
   ExprNodePtr expr;
   size_t ordinal;
 
-  ExprNodeElement(const ExprNodePtr &expr, size_t ordinal)
-      : expr(expr), ordinal(ordinal) {}
+  ExprNodeElement(const ExprNodePtr &expr, size_t ordinal);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal) final;
+};
+
+struct ExprNodeInput : NodeBase<ExprNodeInput, ExprNode> {
+  using Base = NodeBase<ExprNodeInput, ExprNode>;
+
+  util::TensorShape shape;
+
+  explicit ExprNodeInput(const util::TensorShape &shape,
+                         llvm::StringRef name = "");
+  std::string str() const final;
 };
 
 struct ExprNodeIntrinsic : NodeBase<ExprNodeIntrinsic, ExprNode> {
+  using Base = NodeBase<ExprNodeIntrinsic, ExprNode>;
+
   std::string op;
   std::vector<ExprNodePtr> operands;
 
-  ExprNodeIntrinsic(llvm::StringRef op, llvm::ArrayRef<ExprNodePtr> operands)
-      : op(op), operands(operands) {}
+  ExprNodeIntrinsic(llvm::StringRef op, llvm::ArrayRef<ExprNodePtr> operands);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 struct ExprNodeTrace : NodeBase<ExprNodeTrace, ExprNode> {
+  using Base = NodeBase<ExprNodeTrace, ExprNode>;
+
   ExprNodePtr expr;
   std::string msg;
 
-  ExprNodeTrace(const ExprNodePtr &expr, llvm::StringRef msg)
-      : expr(expr), msg(msg) {}
+  ExprNodeTrace(const ExprNodePtr &expr, llvm::StringRef msg);
   std::string str() const final;
-  TensorShape getShape(size_t ordinal = 0) final;
 };
 
 //
@@ -262,7 +238,6 @@ struct DimNode {
   virtual ~DimNode() = default;
   virtual mlir::TypeID getTypeID() const = 0;
   virtual std::string str() const = 0;
-  virtual int64_t eval() const = 0;
 };
 
 struct DimNodeLiteral : NodeBase<DimNodeLiteral, DimNode> {
@@ -270,12 +245,10 @@ struct DimNodeLiteral : NodeBase<DimNodeLiteral, DimNode> {
 
   explicit DimNodeLiteral(int64_t value) : value(value) {}
   std::string str() const final;
-  int64_t eval() const final { return value; }
 };
 
 struct DimNodeNone : NodeBase<DimNodeNone, DimNode> {
   std::string str() const final { return "none"; }
-  int64_t eval() const final;
 };
 
 struct DimNodeOp : NodeBase<DimNodeOp, DimNode> {
@@ -285,7 +258,6 @@ struct DimNodeOp : NodeBase<DimNodeOp, DimNode> {
   DimNodeOp(AffineOp op, llvm::ArrayRef<DimNodePtr> operands)
       : op(op), operands(operands) {}
   std::string str() const final;
-  int64_t eval() const final;
 };
 
 struct DimNodeRef : NodeBase<DimNodeRef, DimNode> {
@@ -294,7 +266,6 @@ struct DimNodeRef : NodeBase<DimNodeRef, DimNode> {
 
   DimNodeRef(const ExprNodePtr &ref, size_t dim) : ref(ref), dim(dim) {}
   std::string str() const final;
-  int64_t eval() const final;
 };
 
 //

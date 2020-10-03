@@ -80,7 +80,8 @@ class Executable {
   Executable(const Program& program,             //
              const std::string& device,          //
              const std::vector<Buffer>& inputs,  //
-             const std::vector<Buffer>& outputs) {
+             const std::vector<Buffer>& outputs)
+      : inputs_(inputs), outputs_(outputs) {
     std::vector<plaidml_buffer*> raw_inputs(inputs.size());
     for (size_t i = 0; i < inputs.size(); i++) {
       raw_inputs[i] = inputs[i].as_ptr();
@@ -107,6 +108,8 @@ class Executable {
 
  private:
   std::shared_ptr<plaidml_executable> ptr_;
+  std::vector<Buffer> inputs_;
+  std::vector<Buffer> outputs_;
 };
 
 }  // namespace exec

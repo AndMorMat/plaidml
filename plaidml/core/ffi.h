@@ -201,10 +201,12 @@ uint64_t plaidml_shape_get_nbytes(  //
 
 plaidml_buffer* plaidml_buffer_alloc(  //
     plaidml_error* err,                //
-    size_t size);
+    plaidml_shape* shape               //
+);
 
 plaidml_buffer* plaidml_buffer_adopt(  //
     plaidml_error* err,                //
+    plaidml_shape* shape,              //
     void* data,                        //
     size_t size);
 
@@ -214,6 +216,10 @@ void plaidml_buffer_free(  //
 
 plaidml_buffer* plaidml_buffer_clone(  //
     plaidml_error* err,                //
+    plaidml_buffer* buffer);
+
+plaidml_shape* plaidml_buffer_shape(  //
+    plaidml_error* err,               //
     plaidml_buffer* buffer);
 
 char* plaidml_buffer_data(  //

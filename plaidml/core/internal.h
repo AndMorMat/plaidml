@@ -22,7 +22,7 @@ struct plaidml_program {
 };
 
 struct plaidml_shape {
-  pmlc::ast::TensorShape shape;
+  pmlc::util::TensorShape shape;
 };
 
 struct plaidml_string {

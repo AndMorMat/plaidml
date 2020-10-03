@@ -2,12 +2,15 @@
 
 import atexit
 import enum
+import logging
 from collections import namedtuple
 
 import numpy as np
 
 from plaidml.core._version import PLAIDML_VERSION
 from plaidml.ffi import (Error, ForeignObject, decode_list, decode_str, ffi, ffi_call, lib)
+
+logger = logging.getLogger(__name__)
 
 
 def __init():
@@ -203,19 +206,15 @@ class TensorShape(ForeignObject):
     __ffi_del__ = lib.plaidml_shape_free
     __ffi_repr__ = lib.plaidml_shape_repr
 
-    def __init__(self, dtype=None, sizes=[], strides=None, ptr=None):
+    def __init__(self, dtype=None, sizes=[], strides=[], ptr=None):
         if ptr:
             ffi_obj = ptr
         elif dtype is not None:
-            if strides is None:
-                strides = []
-            if len(strides) != len(sizes):
-                stride = 1
-                for i in range(len(sizes) - 1, -1, -1):
-                    strides.insert(0, stride)
-                    stride *= sizes[i]
-            raw_sizes = ffi.new('int64_t[]', sizes)
-            raw_strides = ffi.new('int64_t[]', strides)
+            raw_sizes = ffi.new('int64_t[]', [0 if x is None else x for x in sizes])
+            if strides:
+                raw_strides = ffi.new('int64_t[]', strides)
+            else:
+                raw_strides = ffi.NULL
             ffi_obj = ffi_call(lib.plaidml_shape_alloc, dtype, len(sizes), raw_sizes, raw_strides)
         else:
             raise ValueError('One of dtype= or ptr= must be specified.')
@@ -245,18 +244,20 @@ class TensorShape(ForeignObject):
 class Buffer(ForeignObject):
     __ffi_del__ = lib.plaidml_buffer_free
 
-    def __init__(self, shape, ptr=None):
-        self._shape = shape
+    def __init__(self, shape=None, ptr=None):
         self._ndarray = None
         if ptr:
             ffi_obj = ptr
         else:
-            ffi_obj = ffi_call(lib.plaidml_buffer_alloc, shape.byte_size)
+            ffi_obj = ffi_call(lib.plaidml_buffer_alloc, shape.as_ptr())
         super(Buffer, self).__init__(ffi_obj)
+
+    def clone(self):
+        return Buffer(ptr=self._methodcall(lib.plaidml_buffer_clone))
 
     @property
     def shape(self):
-        return self._shape
+        return TensorShape(ptr=self._methodcall(lib.plaidml_buffer_shape))
 
     @property
     def data(self):
@@ -268,19 +269,22 @@ class Buffer(ForeignObject):
 
     def as_ndarray(self):
         if self._ndarray is None:
-            self._ndarray = np.ndarray(tuple(x for x in self.shape.sizes),
-                                       dtype=self.shape.dtype.into_numpy())
+            shape = self.shape
+            self._ndarray = np.ndarray(tuple(x for x in shape.sizes),
+                                       dtype=shape.dtype.into_numpy())
         self.copy_into_ndarray(self._ndarray)
         return self._ndarray
 
     def copy_into_ndarray(self, dst):
-        src = np.frombuffer(self.data, dtype=self.shape.dtype.into_numpy())
-        src = src.reshape(self.shape.sizes)
+        shape = self.shape
+        src = np.frombuffer(self.data, dtype=shape.dtype.into_numpy())
+        src = src.reshape(shape.sizes)
         np.copyto(dst, src)
 
     def copy_from_ndarray(self, src):
-        dst = np.frombuffer(self.data, dtype=self.shape.dtype.into_numpy())
-        dst = dst.reshape(self.shape.sizes)
+        shape = self.shape
+        dst = np.frombuffer(self.data, dtype=shape.dtype.into_numpy())
+        dst = dst.reshape(shape.sizes)
         np.copyto(dst, src)
 
 
@@ -288,14 +292,20 @@ class Program(ForeignObject):
     __ffi_del__ = lib.plaidml_program_free
     __ffi_repr__ = lib.plaidml_program_repr
 
-    def __init__(self, name, inputs, outputs):
+    def __init__(self, name, inputs, outputs, shapes=None):
+        logger.debug('Program({}, {}, {}, {})'.format(name, inputs, outputs, shapes))
         raw_inputs = [x.as_ptr() for x in inputs]
         raw_outputs = [x.as_ptr() for x in outputs]
+        if shapes:
+            raw_shapes = [x.as_ptr() for x in shapes]
+        else:
+            raw_shapes = ffi.NULL
         ffi_obj = ffi_call(
             lib.plaidml_build,
             name.encode(),
             len(raw_inputs),
             raw_inputs,
+            raw_shapes,
             len(raw_outputs),
             raw_outputs,
         )

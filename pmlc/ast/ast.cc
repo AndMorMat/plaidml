@@ -7,12 +7,12 @@
 
 #include "llvm/Support/FormatVariadic.h"
 
-#include "pmlc/ast/ast_ops.h"
 #include "pmlc/util/logging.h"
 
 namespace pmlc::ast {
 
-using pmlc::util::DataType;
+using util::DataType;
+using util::TensorShape;
 
 static llvm::StringRef getAffineOpStr(AffineOp op) {
   switch (op) {
@@ -52,22 +52,6 @@ DataType inferElementType(llvm::ArrayRef<TensorShape> shapes) {
   return ret;
 }
 
-static DataType inferElementType(util::CombinationKind combo,
-                                 llvm::ArrayRef<PolyMap> srcs) {
-  IVLOG(1, "inferElementType");
-  if (combo == util::CombinationKind::eq) {
-    return DataType::i1;
-  }
-  if (combo == util::CombinationKind::cond) {
-    return srcs[2].ref->getShape().elementType;
-  }
-  llvm::SmallVector<TensorShape, 3> shapes;
-  for (const PolyMap &src : srcs) {
-    shapes.push_back(src.ref->getShape());
-  }
-  return inferElementType(shapes);
-}
-
 static bool mergeShapes(TensorShape *into, const TensorShape &from,
                         DataType dtype) {
   // To compute the resulting broadcasted shape, we compare operand shapes
@@ -93,7 +77,7 @@ static bool mergeShapes(TensorShape *into, const TensorShape &from,
 
   // Check each dimension is consistent.
   for (; i1 != e1 && i2 != e2; ++i1, ++i2, ++iR) {
-    if (*i1 == -1 || *i2 == -1) {
+    if (*i1 == 0 || *i2 == 0) {
       // One or both dimensions is unknown. Follow TensorFlow behavior:
       // - If either dimension is greater than 1, we assume that the program is
       //   correct, and the other dimension will be broadcast to match it.
@@ -107,7 +91,7 @@ static bool mergeShapes(TensorShape *into, const TensorShape &from,
       } else if (*i2 == 1) {
         *iR = *i1;
       } else {
-        *iR = -1;
+        *iR = 0;
       }
     } else {
       if (*i1 == *i2 || *i2 == 1) {
@@ -156,91 +140,52 @@ TensorShape inferShape(llvm::ArrayRef<TensorShape> operands,
 // TensorShape
 //
 
-std::string TensorShape::str() const {
-  std::stringstream ss;
-  for (int64_t dim : sizes) {
-    if (dim) {
-      ss << dim;
-    } else {
-      ss << '?';
-    }
-    ss << 'x';
-  }
-  ss << util::stringifyDataType(elementType).str();
-  return ss.str();
-}
+//
+// ExprNode
+//
 
-static size_t getByteSize(DataType dtype) {
-  switch (dtype) {
-  case DataType::i1:
-  case DataType::si8:
-  case DataType::ui8:
-    return 1;
-  case DataType::si16:
-  case DataType::ui16:
-  case DataType::bf16:
-  case DataType::f16:
-    return 2;
-  case DataType::si32:
-  case DataType::ui32:
-  case DataType::f32:
-    return 4;
-  case DataType::si64:
-  case DataType::ui64:
-  case DataType::f64:
-    return 8;
-  default:
-    break;
-  }
-  llvm_unreachable("Invalid DataType for getByteSize");
-}
-
-size_t TensorShape::getByteSize() const {
-  size_t product = 1;
-  for (size_t dim : sizes) {
-    product *= dim;
-  }
-  return product * ast::getByteSize(elementType);
-}
+ExprNode::ExprNode(llvm::StringRef name) : name(name) {}
 
 //
-// ExprNode tree
+// ExprNodeCast
 //
+
+ExprNodeCast::ExprNodeCast(DataType dtype, const ExprNodePtr &expr)
+    : dtype(dtype), expr(expr) {}
 
 std::string ExprNodeCast::str() const { return "cast"; }
 
-TensorShape ExprNodeCast::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeCast::getShape({0})", ordinal).str());
-  TensorShape shape = expr->getShape();
-  shape.elementType = dtype;
-  return shape;
-}
+//
+// ExprNodeConstSsigned
+//
+
+ExprNodeConstSigned::ExprNodeConstSigned(int64_t value) : value(value) {}
 
 std::string ExprNodeConstSigned::str() const { return std::to_string(value); }
 
-TensorShape ExprNodeConstSigned::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeSigned::getShape({0})", ordinal).str());
-  return TensorShape{DataType::six};
-}
+//
+// ExprNodeConstUnsigned
+//
+
+ExprNodeConstUnsigned::ExprNodeConstUnsigned(uint64_t value) : value(value) {}
 
 std::string ExprNodeConstUnsigned::str() const { return std::to_string(value); }
 
-TensorShape ExprNodeConstUnsigned::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeUnsigned::getShape({0})", ordinal).str());
-  return TensorShape{DataType::uix};
-}
+//
+// ExprNodeConstFloat
+//
+
+ExprNodeConstFloat::ExprNodeConstFloat(double value) : value(value) {}
 
 std::string ExprNodeConstFloat::str() const { return std::to_string(value); }
 
-TensorShape ExprNodeConstFloat::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeFloat::getShape({0})", ordinal).str());
-  return TensorShape{DataType::fx};
-}
+//
+// ExprNodeConstTensor
+//
 
-TensorShape ExprNodeConstTensor::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeTensor::getShape({0})", ordinal).str());
-  return shape;
-}
+ExprNodeConstTensor::ExprNodeConstTensor(const util::BufferPtr &buffer,
+                                         llvm::StringRef name)
+    : buffer(buffer) {}
 
 std::string ExprNodeConstTensor::str() const { return "constant_tensor"; }
 
@@ -248,35 +193,39 @@ std::string Constraint::str() const {
   return llvm::formatv("{0} < {1}", lhs->str(), rhs->str());
 }
 
+//
+// ExprNodeContraction
+//
+
+ExprNodeContraction::ExprNodeContraction(llvm::StringRef name) : Base(name) {}
+
 std::string ExprNodeContraction::str() const { return "contraction"; }
 
-TensorShape ExprNodeContraction::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeContraction::getShape({0})", ordinal).str());
-  DataType elementType = inferElementType(comboKind, srcs);
-  TensorShape shape{elementType};
-  for (const DimNodePtr &dim : sinkDims) {
-    shape.sizes.push_back(dim->eval());
-  }
-  IVLOG(1, "  " << shape.str());
-  return shape;
-}
+//
+// ExprNodeDim
+//
+
+ExprNodeDim::ExprNodeDim(const DimNodePtr &dim) : dim(dim) {}
 
 std::string ExprNodeDim::str() const { return dim->str(); }
 
-TensorShape ExprNodeDim::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeDim::getShape({0})", ordinal).str());
-  return TensorShape(DataType::six);
-}
+//
+// ExprNodeElement
+//
+
+ExprNodeElement::ExprNodeElement(const ExprNodePtr &expr, size_t ordinal)
+    : expr(expr), ordinal(ordinal) {}
 
 std::string ExprNodeElement::str() const {
   return llvm::formatv("{0}[{1}]", expr->str(), ordinal);
 }
 
-TensorShape ExprNodeElement::getShape(size_t ordinal) {
-  IVLOG(1,
-        llvm::formatv("ExprNodeElement::getShape({0})", this->ordinal).str());
-  return expr->getShape(this->ordinal);
-}
+//
+// ExprNodeInput
+//
+
+ExprNodeInput::ExprNodeInput(const TensorShape &shape, llvm::StringRef name)
+    : Base(name), shape(shape) {}
 
 std::string ExprNodeInput::str() const {
   if (name.size()) {
@@ -285,53 +234,27 @@ std::string ExprNodeInput::str() const {
   return llvm::formatv("input<{0}>", shape.str());
 }
 
-// TensorShape ExprNodeInput::getShape() {
-//   shape.dtype = in_shape.dtype;
-//   shape.dims.clear();
-//   for (size_t i = 0; i < in_shape.dims.size(); i++) {
-//     const auto &dim = in_shape.dims[i];
-//     if (auto int_expr = std::dynamic_pointer_cast<DimIntExpr>(dim.expr)) {
-//       if (int_expr->value) {
-//         shape.dims.push_back(dim);
-//       } else {
-//         shape.dims.push_back(LogicalDim{std::make_shared<DimRefExpr>(ref,
-//         i)});
-//       }
-//     } else {
-//       shape.dims.push_back(dim);
-//     }
-//   }
-// }
+//
+// ExprNodeIntrinsic
+//
 
-TensorShape ExprNodeInput::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeInput::getShape({0})", ordinal).str());
-  return shape;
-}
+ExprNodeIntrinsic::ExprNodeIntrinsic(llvm::StringRef op,
+                                     llvm::ArrayRef<ExprNodePtr> operands)
+    : op(op), operands(operands) {}
 
 std::string ExprNodeIntrinsic::str() const {
   return llvm::formatv("{0}()", op);
 }
 
-TensorShape ExprNodeIntrinsic::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeIntrinsic::getShape({0})", ordinal).str());
-  llvm::SmallVector<TensorShape, 8> shapes;
-  for (const ExprNodePtr &operand : operands) {
-    shapes.emplace_back(operand->getShape());
-  }
-  auto intrinsic = IntrinsicRegistry::Instance()->resolve(op);
-  if (intrinsic) {
-    return intrinsic->getShape(operands, shapes, ordinal);
-  }
-  return inferShape(shapes);
-}
+//
+// ExprNodeTrace
+//
+
+ExprNodeTrace::ExprNodeTrace(const ExprNodePtr &expr, llvm::StringRef msg)
+    : expr(expr), msg(msg) {}
 
 std::string ExprNodeTrace::str() const {
   return llvm::formatv("trace(\"{0}\")", msg);
-}
-
-TensorShape ExprNodeTrace::getShape(size_t ordinal) {
-  IVLOG(1, llvm::formatv("ExprNodeTrace::getShape({0})", ordinal).str());
-  return expr->getShape();
 }
 
 //
@@ -340,49 +263,10 @@ TensorShape ExprNodeTrace::getShape(size_t ordinal) {
 
 std::string DimNodeLiteral::str() const { return std::to_string(value); }
 
-int64_t DimNodeNone::eval() const {
-  throw std::runtime_error("DimNodeNone cannot be evaluated");
-}
-
 std::string DimNodeOp::str() const { return getAffineOpStr(op).str(); }
-
-int64_t DimNodeOp::eval() const {
-  if (op == AffineOp::Neg) {
-    if (operands.size() != 1) {
-      throw std::runtime_error("Invalid number of operands in DimNodeOp");
-    }
-    return -operands[0]->eval();
-  }
-  if (operands.size() != 2) {
-    throw std::runtime_error("Invalid number of operands in DimNodeOp");
-  }
-  int64_t lhs = operands[0]->eval();
-  int64_t rhs = operands[1]->eval();
-  switch (op) {
-  case AffineOp::Add:
-    return lhs + rhs;
-  case AffineOp::Sub:
-    return lhs - rhs;
-  case AffineOp::Mul:
-    return lhs * rhs;
-  case AffineOp::Div:
-    return lhs / rhs;
-  case AffineOp::Max:
-    return std::max(lhs, rhs);
-  case AffineOp::Min:
-    return std::min(lhs, rhs);
-  default:
-    throw std::runtime_error("Invalid AffineOp");
-  }
-}
 
 std::string DimNodeRef::str() const {
   return llvm::formatv("{0}[{1}]", ref->str(), dim);
-}
-
-int64_t DimNodeRef::eval() const {
-  IVLOG(1, "DimNodeRef::eval");
-  return ref->getShape().sizes[dim];
 }
 
 //

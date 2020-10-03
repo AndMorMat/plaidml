@@ -73,7 +73,7 @@ void PlaidMLExecutableNetwork::handleConstant(const std::shared_ptr<ngraph::Node
   Context ctx{node.get()};
   auto* layer = dynamic_cast<ngraph::opset1::Constant*>(ctx.layer);
   buffer.copy_from(layer->get_data_ptr());
-  auto tensor = edsl::Constant(shape, buffer, node->get_friendly_name());
+  auto tensor = edsl::Constant(buffer, node->get_friendly_name());
   IVLOG(3, "    Adding constant named '" << node->get_output_tensor_name(0) << "'");
   tensorMap_[node->output(0).get_tensor_ptr()] = tensor;
 }
