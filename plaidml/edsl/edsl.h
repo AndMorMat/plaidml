@@ -111,16 +111,6 @@ class TensorDim {
   ///
   std::string str() const { return ffi::str(ffi::call<plaidml_string*>(plaidml_dim_expr_repr, as_ptr())); }
 
-  ///
-  /// Returns the TensorDim as an int.
-  ///
-  // int64_t as_int() const {
-  //   if (!ptr_) {
-  //     throw std::runtime_error("as_int() only available on TensorDim with an integer value");
-  //   }
-  //   return ffi::call<int64_t>(plaidml_dim_expr_get_int, as_ptr());
-  // }
-
   plaidml_dim_expr* as_ptr() const { return ptr_.get(); }
 
  private:
@@ -287,7 +277,6 @@ class Tensor {
   template <typename... Ts>
   IndexedTensor operator()(Ts... idxs) const;
   IndexedTensor operator()(const std::vector<TensorIndex>& idxs) const;
-  // IndexedTensor operator()(const std::initializer_list<TensorIndex>& idxs) const;
 
   Tensor operator[](size_t ordinal) const;
 
@@ -441,12 +430,10 @@ class Contraction {
   Contraction& outShape(Ts... idxs);
   Contraction& outShape(const std::vector<TensorDim>& dims);
   Contraction& outShape(const std::vector<int64_t>& dims);
-  // Contraction& outShape(std::initializer_list<TensorDim>& dims);
 
   template <typename... Ts>
   Contraction& outAccess(Ts... idxs);
   Contraction& outAccess(const std::vector<TensorIndex>& idxs);
-  // Contraction& outAccess(const std::initializer_list<TensorIndex>& idxs);
 
   ///
   /// Performs an assignment contraction.
@@ -522,11 +509,6 @@ inline Contraction& Contraction::outShape(const std::vector<TensorDim>& dims) {
   return *this;
 }
 
-// inline Contraction& Contraction::outShape(std::initializer_list<TensorDim>& dims) {
-//   outDims_ = dims;
-//   return *this;
-// }
-
 inline Contraction& Contraction::outShape(const std::vector<int64_t>& dims) {
   for (int64_t dim : dims) {
     outDims_.emplace_back(dim);
@@ -544,11 +526,6 @@ inline Contraction& Contraction::outAccess(const std::vector<TensorIndex>& idxs)
   outIdxs_ = idxs;
   return *this;
 }
-
-// inline Contraction& Contraction::outAccess(const std::initializer_list<TensorIndex>& idxs) {
-//   outIdxs_ = idxs;
-//   return *this;
-// }
 
 inline Contraction& Contraction::simplify(bool flag) {
   simplify_ = flag;
@@ -667,10 +644,6 @@ inline IndexedTensor Tensor::operator()(Ts... idxs) const {
 inline IndexedTensor Tensor::operator()(const std::vector<TensorIndex>& idxs) const {
   return IndexedTensor(*this, idxs);
 }
-
-// inline IndexedTensor Tensor::operator()(const std::initializer_list<TensorIndex>& idxs) const {
-//   return IndexedTensor(*this, idxs);
-// }
 
 inline Tensor Tensor::operator[](size_t ordinal) const {
   return Tensor(ffi::call<plaidml_expr*>(plaidml_expr_element, as_ptr(), ordinal));

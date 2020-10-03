@@ -86,8 +86,4 @@ ResultT* ffi_vector(const std::vector<T>& vec) {
 plaidml_datatype convertIntoDataType(pmlc::util::DataType type);
 pmlc::util::DataType convertFromDataType(plaidml_datatype dtype);
 
-// Converts the supplied RAII strings vector into a plaidml_strings*
-// for returning via FFI.
-plaidml_strings* toFFI(std::vector<std::string> strings);
-
 }  // namespace plaidml::core

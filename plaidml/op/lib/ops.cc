@@ -521,8 +521,8 @@ Value binary_crossentropy(const Value& value) {
   if (args.size() != 3) {
     throw std::runtime_error("binary_crossentropy expects 3 arguments");
   }
-  auto T = ident(args[0].as_tensor());  // Targets Tensor; copied for safe gradient override
-  auto raw_P = args[1];                 // Predictions Tensor, before clipping
+  auto T = args[0].as_tensor();  // Targets Tensor
+  auto raw_P = args[1];          // Predictions Tensor, before clipping
   auto epsilon = args[2].as_float();
 
   // Check args & set useful values
@@ -533,21 +533,6 @@ Value binary_crossentropy(const Value& value) {
   auto clip_inputs = make_tuple(raw_P, Value{epsilon}, Value{1. - epsilon});
   auto P = clip(clip_inputs).as_tensor();
   auto O = -T * log(P) - (1 - T) * log(1 - P);
-  // TensorDeriv deriv = [](const Tensor& Y, const Tensor& DY, const std::vector<Tensor>& X) {  //
-  //   auto T = X[0];
-  //   auto P = X[1];
-  //   Tensor One{1.0};
-  //   auto ndims = T.rank();
-  //   std::vector<TensorDim> dims(ndims);
-  //   T.bind_dims(dims);
-  //   auto dims_prod = Tensor{1};
-  //   for (const auto& dim : dims) {
-  //     dims_prod = dims_prod * dim;
-  //   }
-  //   return std::vector<Tensor>{(log(One - P) - log(P)) / dims_prod, (-T / P + (One - T) / (One - P)) / dims_prod};
-  // };
-  // Safe to use P without copy since it is built internally to this function
-  // return Value{OverrideGrads(deriv, std::vector<Tensor>{T, P}, O)};
   return Value{O};
 }
 
@@ -2337,19 +2322,15 @@ Value scale_gradient(const Value& value) {
   if (args.size() != 2) {
     throw std::runtime_error("scale_gradient expects 2 arguments");
   }
-  auto I = ident(args[0].as_tensor());  // Copy for safe gradient override
+  auto I = args[0].as_tensor();
   Tensor scale;
   if (args[1].is_float()) {
     // Cast scale to Tensor if it's given as a float
     scale = Tensor{args[1].as_float()};
   } else {
-    scale = ident(args[1].as_tensor());  // Copy for safe gradient override
+    scale = args[1].as_tensor();
   }
   auto O = I;  // Forward pass is NoOp
-  // TensorDeriv deriv = [](const Tensor& Y, const Tensor& DY, const std::vector<Tensor>& X) {
-  //   return std::vector<Tensor>{X[1] * DY, Tensor{0.0}};
-  // };
-  // return Value{OverrideGrads(deriv, std::vector<Tensor>{I, scale}, O)};
   return Value{O};
 }
 
@@ -2359,12 +2340,8 @@ Value sigmoid(const Value& value) {
   if (args.size() != 1) {
     throw std::runtime_error("sigmoid expects 1 argument");
   }
-  auto I = ident(args[0].as_tensor());  // Copy for safe gradient override
+  auto I = args[0].as_tensor();
   auto O = 1.0 / (1.0 + exp(-I));
-  // TensorDeriv deriv = [](const Tensor& Y, const Tensor& DY, const std::vector<Tensor>& X) {  //
-  //   return std::vector<Tensor>{Y * (1.0 - Y) * DY};
-  // };
-  // return Value{OverrideGrads(deriv, std::vector<Tensor>{I}, O)};
   return Value{O};
 }
 
@@ -2506,9 +2483,8 @@ Value softmax(const Value& value) {
   if (args.size() != 2) {
     throw std::runtime_error("softmax expects 2 arguments");
   }
-  auto I_original = args[0].as_tensor();
+  auto I = args[0].as_tensor();
   auto raw_axis = args[1].as_int();
-  auto I = ident(I_original);  // Copy for safe gradient override
 
   auto ndims = I.rank();
   auto axis = normalize_axis(raw_axis, ndims, "softmax");
@@ -2543,23 +2519,6 @@ Value softmax(const Value& value) {
   auto E = exp(I - M);
   Tensor N = Contraction(R_dims, R_idxs).sum(E(I_idxs));
   auto O = E / N;
-  // TensorDeriv deriv = [](const Tensor& Y, const Tensor& DY, const std::vector<Tensor>& X) {  //
-  //   auto I = X[0];
-  //   auto ndims = I.rank();
-  //   std::vector<TensorDim> I_dims(ndims);
-  //   std::vector<TensorIndex> I_idxs(ndims);
-  //   I.bind_dims(I_dims);
-  //   std::vector<TensorDim> R_dims = I_dims;
-  //   std::vector<TensorIndex> R_idxs = I_idxs;
-  //   R_dims.back() = TensorDim{1};    // Softmax along last axis
-  //   R_idxs.back() = TensorIndex{0};  // Softmax along last axis
-
-  //   auto YdY = Y * DY;
-  //   Tensor T = Contraction(R_dims, R_idxs).sum(YdY(I_idxs));
-  //   Tensor TB = Contraction(I_dims, I_idxs).sum(T(R_idxs));
-  //   return std::vector<Tensor>{YdY - TB * Y};
-  // };
-  // auto Overridden = OverrideGrads(deriv, std::vector<Tensor>{I}, O);
   // If we reordered, return to original order
   if (transposed) {
     return transpose(make_tuple(Value{O}, Value{pattern}));

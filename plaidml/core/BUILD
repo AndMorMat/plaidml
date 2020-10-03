@@ -53,7 +53,6 @@ plaidml_cc_library(
     deps = [
         "//pmlc/ast",
         "//pmlc/compiler",
-        "//pmlc/dialect/tile",
         "//pmlc/util",
         "@llvm-project//llvm:Support",
     ],
