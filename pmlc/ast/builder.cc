@@ -518,7 +518,18 @@ struct ProgramBuilder {
     builder.create<ReturnOp>(loc, returnOperands.getArrayRef());
 
     program->entry = kEntrypoint;
-    program->tileIR = debugString(*module);
+
+    PassManager pm(context);
+    pm.addPass(createCanonicalizerPass());
+    pm.addPass(createCSEPass());
+    auto result = pm.run(module);
+
+    program->tileIR = debugString(module);
+    IVLOG(1, "\n" << program->tileIR);
+    if (failed(result)) {
+      throw std::runtime_error("Program build failure.");
+    }
+
     return program;
   }
 
@@ -654,17 +665,7 @@ std::shared_ptr<Program> buildProgram(llvm::StringRef name,
   if (name.empty()) {
     name = "module";
   }
-  auto program = ProgramBuilder(name).build(args);
-  PassManager pm(&program->context);
-  pm.addPass(createCanonicalizerPass());
-  pm.addPass(createCSEPass());
-  ModuleOp module = *program->module;
-  auto result = pm.run(module);
-  if (failed(result)) {
-    IVLOG(2, "\n" << mlir::debugString(module));
-    throw std::runtime_error("Program build failure.");
-  }
-  return program;
+  return ProgramBuilder(name).build(args);
 }
 
 } // namespace pmlc::ast

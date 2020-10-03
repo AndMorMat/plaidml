@@ -157,7 +157,7 @@ class _Function(object):
         self._cache = {}
         self._vars = set()
         self._trace_vars(outputs + [x[1] for x in updates])
-        logger.debug('vars: {}'.format(self._vars))
+        # logger.debug('vars: {}'.format(self._vars))
 
     def _trace_vars(self, nodes):
         for node in nodes:
@@ -176,7 +176,7 @@ class _Function(object):
         if not runner:
             runner = self._compile(inputs)
             self._cache[input_shapes] = runner
-        logger.debug('run({})'.format(inputs))
+        # logger.debug('run({})'.format(inputs))
         return runner.run(inputs)
 
     def _compile(self, inputs):
@@ -185,11 +185,9 @@ class _Function(object):
 
 
 def _create_buffer(value):
-    # logger.debug('_create_buffer: {}'.format(value))
     dtype = plaidml.DType.from_numpy(value.dtype)
     shape = plaidml.TensorShape(dtype, value.shape)
     buffer = plaidml.Buffer(shape)
-    logger.debug('buffer: {}'.format(buffer))
     buffer.copy_from_ndarray(value)
     return shape, buffer
 
@@ -240,7 +238,7 @@ class _KerasNode(object):
         self.__keras_shape = shape
 
     def __getitem__(self, key):
-        logger.debug('__getitem__(self: {}, key: {})'.format(self, key))
+        # logger.debug('__getitem__(self: {}, key: {})'.format(self, key))
         # Any _RawTensorDims are to be forwarded
         raw_tensor_dims = getattr(self, '_RawTensorDims', None)
         if raw_tensor_dims is not None:
@@ -322,7 +320,7 @@ class _KerasNode(object):
         return self.__binary_op('cmp_lt', other, lambda x, y: x < y)
 
     def __binary_op(self, op, other, fn):
-        logger.debug('{}(self: {}, other: {})'.format(op, self, other))
+        # logger.debug('{}(self: {}, other: {})'.format(op, self, other))
         x, xt = self, self.tensor
         y, yt = _get_operand_and_tensor(other)
         return _KerasNode(op, tensor=fn(xt, yt), operands=[x, y])
@@ -1117,10 +1115,10 @@ def moving_average_update(x, value, momentum):
 @contextmanager
 def name_scope(name):
     _NAME_SCOPE_STACK.append(name)
-    logger.debug('name_scope({}), push: {}'.format(name, _NAME_SCOPE_STACK))
+    # logger.debug('name_scope({}), push: {}'.format(name, _NAME_SCOPE_STACK))
     yield
     _NAME_SCOPE_STACK.pop()
-    logger.debug('name_scope({}), pop: {}'.format(name, _NAME_SCOPE_STACK))
+    # logger.debug('name_scope({}), pop: {}'.format(name, _NAME_SCOPE_STACK))
 
 
 @_log_call
@@ -1789,9 +1787,9 @@ def variable(value, dtype=None, name=None, constraint=None):
         value = np.array(value, dtype=dtype)
     if isinstance(value, np.ndarray):
         if dtype != value.dtype:
-            logger.debug(
-                'Casting to requested dtype in variable, received {} and requested {}'.format(
-                    value.dtype, dtype))
+            # logger.debug(
+            #     'Casting to requested dtype in variable, received {} and requested {}'.format(
+            #         value.dtype, dtype))
             value = value.astype(dtype)
         return _KerasNode('variable', name=name, var=value)
     raise TypeError('Unknown type for variable: {}'.format(type(value)))

@@ -293,7 +293,7 @@ class Program(ForeignObject):
     __ffi_repr__ = lib.plaidml_program_repr
 
     def __init__(self, name, inputs, outputs, shapes=None):
-        logger.debug('Program({}, {}, {}, {})'.format(name, inputs, outputs, shapes))
+        # logger.debug('Program({}, {}, {}, {})'.format(name, inputs, outputs, shapes))
         raw_inputs = [x.as_ptr() for x in inputs]
         raw_outputs = [x.as_ptr() for x in outputs]
         if shapes:
